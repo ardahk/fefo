@@ -6,6 +6,11 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		2E22CDA02CFEB4330075DF76 /* MapboxMaps in Frameworks */ = {isa = PBXBuildFile; productRef = 2E22CD9F2CFEB4330075DF76 /* MapboxMaps */; };
+		2EF5FAF42CED6AAE00931F1A /* Inject in Frameworks */ = {isa = PBXBuildFile; productRef = 2EF5FAF32CED6AAE00931F1A /* Inject */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		2EF5FAD52CED66F100931F1A /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -29,9 +34,22 @@
 		2EF5FADE2CED66F100931F1A /* fefoUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = fefoUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		2E22CD9D2CFEB2A80075DF76 /* Exceptions for "fefo" folder in "fefo" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 2EF5FAC32CED66EE00931F1A /* fefo */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		2EF5FAC62CED66EE00931F1A /* fefo */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				2E22CD9D2CFEB2A80075DF76 /* Exceptions for "fefo" folder in "fefo" target */,
+			);
 			path = fefo;
 			sourceTree = "<group>";
 		};
@@ -52,6 +70,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				2E22CDA02CFEB4330075DF76 /* MapboxMaps in Frameworks */,
+				2EF5FAF42CED6AAE00931F1A /* Inject in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -78,6 +98,7 @@
 				2EF5FAC62CED66EE00931F1A /* fefo */,
 				2EF5FAD72CED66F100931F1A /* fefoTests */,
 				2EF5FAE12CED66F100931F1A /* fefoUITests */,
+				2EF5FAF22CED6AA800931F1A /* Frameworks */,
 				2EF5FAC52CED66EE00931F1A /* Products */,
 			);
 			sourceTree = "<group>";
@@ -90,6 +111,13 @@
 				2EF5FADE2CED66F100931F1A /* fefoUITests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		2EF5FAF22CED6AA800931F1A /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -112,6 +140,8 @@
 			);
 			name = fefo;
 			packageProductDependencies = (
+				2EF5FAF32CED6AAE00931F1A /* Inject */,
+				2E22CD9F2CFEB4330075DF76 /* MapboxMaps */,
 			);
 			productName = fefo;
 			productReference = 2EF5FAC42CED66EE00931F1A /* fefo.app */;
@@ -195,6 +225,10 @@
 			);
 			mainGroup = 2EF5FABB2CED66EE00931F1A;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				2EF5FAF12CED673600931F1A /* XCRemoteSwiftPackageReference "Inject" */,
+				2E22CD9E2CFEB3420075DF76 /* XCRemoteSwiftPackageReference "mapbox-maps-ios" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 2EF5FAC52CED66EE00931F1A /* Products */;
 			projectDirPath = "";
@@ -326,6 +360,10 @@
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
+				OTHER_LDFLAGS = (
+					"-Xlinker",
+					"-interposable",
+				);
 				SDKROOT = iphoneos;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
@@ -382,6 +420,7 @@
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
+				OTHER_LDFLAGS = "";
 				SDKROOT = iphoneos;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				VALIDATE_PRODUCT = YES;
@@ -398,6 +437,7 @@
 				DEVELOPMENT_ASSET_PATHS = "\"fefo/Preview Content\"";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = fefo/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -426,6 +466,7 @@
 				DEVELOPMENT_ASSET_PATHS = "\"fefo/Preview Content\"";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = fefo/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -552,6 +593,38 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		2E22CD9E2CFEB3420075DF76 /* XCRemoteSwiftPackageReference "mapbox-maps-ios" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/mapbox/mapbox-maps-ios.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 11.0.0;
+			};
+		};
+		2EF5FAF12CED673600931F1A /* XCRemoteSwiftPackageReference "Inject" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/krzysztofzablocki/Inject.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.5.2;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		2E22CD9F2CFEB4330075DF76 /* MapboxMaps */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 2E22CD9E2CFEB3420075DF76 /* XCRemoteSwiftPackageReference "mapbox-maps-ios" */;
+			productName = MapboxMaps;
+		};
+		2EF5FAF32CED6AAE00931F1A /* Inject */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 2EF5FAF12CED673600931F1A /* XCRemoteSwiftPackageReference "Inject" */;
+			productName = Inject;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 2EF5FABC2CED66EE00931F1A /* Project object */;
 }
