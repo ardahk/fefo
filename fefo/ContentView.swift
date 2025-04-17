@@ -12,7 +12,6 @@ import MapKit
 struct ContentView: View {
     @ObserveInjection var inject
     @StateObject private var viewModel = FoodEventsViewModel()
-    @State private var selectedEvent: FoodEvent?
     @State private var showingAddEvent = false
     @State private var selectedTab = 0
     @State private var showingProfile = false
@@ -21,7 +20,7 @@ struct ContentView: View {
         TabView(selection: $selectedTab) {
             // Map Tab
             NavigationView {
-                MapView(selectedEvent: $selectedEvent)
+                MapView()
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
                         ToolbarItem(placement: .principal) {
@@ -162,9 +161,6 @@ struct ContentView: View {
                     )
                 )
             }
-        }
-        .sheet(item: $selectedEvent) { event in
-            EventDetailView(event: event)
         }
         .sheet(isPresented: $showingAddEvent) {
             AddEventView()

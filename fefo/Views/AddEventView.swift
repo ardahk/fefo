@@ -18,7 +18,7 @@ struct AddEventView: View {
     @State private var searchText = ""
     @State private var showingLocationSearch = false
     @State private var selectedLocationName: String = ""
-    @State private var selectedTags: Set<FoodEvent.EventTag> = []
+    @State private var selectedTags: [FoodEvent.EventTag] = []
     
     // UC Berkeley's campus region
     @State private var region = MKCoordinateRegion(
@@ -130,9 +130,9 @@ struct AddEventView: View {
                                     isSelected: selectedTags.contains(tag),
                                     action: {
                                         if selectedTags.contains(tag) {
-                                            selectedTags.remove(tag)
+                                            selectedTags.removeAll { $0 == tag }
                                         } else if selectedTags.count < 4 {
-                                            selectedTags.insert(tag)
+                                            selectedTags.append(tag)
                                         }
                                     }
                                 )
@@ -185,7 +185,7 @@ struct AddEventView: View {
             createdBy: "Anonymous",
             isActive: true,
             comments: [],
-            tags: [],
+            tags: selectedTags,
             attendees: []
         )
         

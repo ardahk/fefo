@@ -6,6 +6,7 @@ import CoreLocation
 class FoodEventsViewModel: ObservableObject {
     @Published var foodEvents: [FoodEvent] = []
     @Published var leaderboard: [LeaderboardEntry] = []
+    @Published var selectedEventForDetail: FoodEvent?
     
     struct LeaderboardEntry: Identifiable {
         let id: UUID

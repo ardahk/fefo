@@ -81,7 +81,13 @@ struct EventRow: View {
                         Text(event.title)
                             .font(.headline)
                         Spacer()
-                        StatusBadge(isActive: event.isActive)
+                        Text(event.statusInfo.text)
+                            .font(.caption)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(event.statusInfo.color.opacity(0.2))
+                            .foregroundColor(event.statusInfo.color)
+                            .cornerRadius(8)
                     }
                     
                     Text(event.buildingName)

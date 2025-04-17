@@ -237,13 +237,13 @@ struct EventDetailView: View {
     }
     
     private var statusBadge: some View {
-        Text(event.isActive ? "Active" : "Ended")
+        Text(event.statusInfo.text)
             .font(.caption)
             .fontWeight(.medium)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
-            .background(event.isActive ? Color.green : Color.red)
-            .foregroundColor(.white)
+            .background(event.statusInfo.color.opacity(0.2))
+            .foregroundColor(event.statusInfo.color)
             .cornerRadius(8)
     }
     

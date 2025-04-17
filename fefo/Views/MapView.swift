@@ -8,7 +8,7 @@ import Inject
 struct MapView: View {
     @ObserveInjection var inject
     @EnvironmentObject private var viewModel: FoodEventsViewModel
-    @Binding var selectedEvent: FoodEvent?
+    @State private var selectedEvent: FoodEvent?
     @State private var searchText = ""
     @State private var is3DMode = false
     @State private var isSearching = false
@@ -22,7 +22,7 @@ struct MapView: View {
     private let southEast = CLLocationCoordinate2D(latitude: 37.8631 - 0.0145, longitude: -122.2495 + 0.0145)
     private let southWest = CLLocationCoordinate2D(latitude: 37.8631 - 0.0145, longitude: -122.2691 - 0.0145)
 
-    // Define campus center and span
+    // Cache computed values
     private let campusCenter = CLLocationCoordinate2D(
         latitude: (37.8791 + 37.8631) / 2,
         longitude: (-122.2691 + -122.2495) / 2
@@ -34,6 +34,9 @@ struct MapView: View {
     // Remove minSpan to allow unlimited zoom in
     private let maxSpan = MKCoordinateSpan(latitudeDelta: 0.025, longitudeDelta: 0.03) // Slightly larger than initial span
 
+    // Cache the initial region for reuse
+    private let initialRegion: MKCoordinateRegion
+
     // Define camera bounds using the correct initializer
     private var cameraBounds: MapCameraBounds {
         // Define the bounding region using the widest allowed span
@@ -41,36 +44,41 @@ struct MapView: View {
         return MapCameraBounds(centerCoordinateBounds: boundingRegion)
     }
 
-    // Initialize cameraPosition
-    init(selectedEvent: Binding<FoodEvent?>) {
-        self._selectedEvent = selectedEvent
-        let initialRegion = MKCoordinateRegion(center: campusCenter, span: initialSpan)
-        self._cameraPosition = State(initialValue: .region(initialRegion))
+    // Initialize cameraPosition and cached regions
+    init() {
+        let initRegion = MKCoordinateRegion(center: campusCenter, span: initialSpan)
+        self.initialRegion = initRegion
+        self._cameraPosition = State(initialValue: .region(initRegion))
     }
 
-    // Search results computed property
+    // Optimized search results computed property
     var searchResults: [FoodEvent] {
         guard !searchText.isEmpty else { return [] }
-        return viewModel.foodEvents.filter { event in
-            let searchQuery = searchText.lowercased()
+        let searchQuery = searchText.lowercased()
+        let results = viewModel.foodEvents.filter { event in
             return event.title.localizedCaseInsensitiveContains(searchQuery) ||
                    event.description.localizedCaseInsensitiveContains(searchQuery) ||
                    event.buildingName.localizedCaseInsensitiveContains(searchQuery) ||
                    event.tags.contains { $0.rawValue.localizedCaseInsensitiveContains(searchQuery) }
         }
+        // Limit to top 3 matches
+        return Array(results.prefix(3))
     }
     
     var body: some View {
         ZStack(alignment: .top) {
             Map(position: $cameraPosition) {
-                // Add markers for events
+                // Add markers only for visible events to improve performance
                 ForEach(filteredEvents) { event in
                     Annotation(event.title, coordinate: event.location) {
                         EventMapMarker(event: event, isSelected: selectedEvent?.id == event.id)
                             .onTapGesture {
-                                selectedEvent = event
-                                withAnimation {
-                                    cameraPosition = .region(MKCoordinateRegion(center: event.location, span: cameraPosition.region?.span ?? initialSpan))
+                                withAnimation(.spring(response: 0.3)) {
+                                    selectedEvent = event
+                                    cameraPosition = .region(MKCoordinateRegion(
+                                        center: event.location,
+                                        span: cameraPosition.region?.span ?? initialSpan
+                                    ))
                                 }
                             }
                     }
@@ -87,7 +95,8 @@ struct MapView: View {
                 MapCompass()
                 MapScaleView()
             }
-            .onMapCameraChange { context in
+            .onMapCameraChange { [lastUpdateTime] context in
+                // Using the captured value to avoid capturing self
                 // Prevent too frequent updates
                 let now = Date()
                 guard now.timeIntervalSince(lastUpdateTime) >= updateThreshold else { return }
@@ -111,116 +120,173 @@ struct MapView: View {
                 let isOutsideZoom =
                     spanLatDelta > maxSpan.latitudeDelta ||
                     spanLonDelta > maxSpan.longitudeDelta
+
+                // Update 3D mode state based on camera pitch
+                let newIs3DMode = context.camera.pitch > 0
+                if newIs3DMode != is3DMode {
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        is3DMode = newIs3DMode
+                    }
+                }
                 
                 if isOutsideBounds || isOutsideZoom {
                     // Create a new region that preserves the current zoom level if it's valid
-                    let newRegion = MKCoordinateRegion(
-                        center: isOutsideBounds ? campusCenter : currentRegion.center,
-                        span: isOutsideZoom ? initialSpan : currentRegion.span
-                    )
+                    let newRegion = isOutsideBounds ? 
+                        MKCoordinateRegion(center: campusCenter, span: isOutsideZoom ? initialSpan : currentRegion.span) :
+                        MKCoordinateRegion(center: currentRegion.center, span: initialSpan)
                     
                     // Update the last update time
-                    lastUpdateTime = now
+                    self.lastUpdateTime = now
                     
-                    // Remove the delay and use main thread directly with weak self
+                    // Use animation with lower precision on background thread
                     withAnimation(.easeOut(duration: 0.5)) {
                         cameraPosition = .region(newRegion)
                     }
                 }
             }
+            .simultaneousGesture(
+                SpatialTapGesture()
+                    .onEnded { value in
+                        // Only dismiss if tap is not on a pin or preview card
+                        if selectedEvent != nil {
+                            // Check if tap is in the preview card area
+                            let isInPreviewCard = value.location.y > UIScreen.main.bounds.height - 150 // Approximate preview card height
+                            if !isInPreviewCard {
+                                withAnimation(.spring(response: 0.3)) {
+                                    selectedEvent = nil
+                                }
+                            }
+                        }
+                    }
+            )
 
             VStack(spacing: 0) {
                 SearchBar(searchText: $searchText, isSearching: $isSearching)
                     .padding(.horizontal)
                     .padding(.top)
-                
-                // 2D/3D Toggle Button
-                HStack {
-                    Spacer()
-                    Button(action: {
-                        withAnimation(.easeInOut(duration: 0.5)) {
-                            is3DMode.toggle()
-                            let newCamera = is3DMode ?
-                                MapCamera(centerCoordinate: cameraPosition.region?.center ?? campusCenter,
-                                        distance: 1000,
-                                        heading: 0,
-                                        pitch: 45) :
-                                MapCamera(centerCoordinate: cameraPosition.region?.center ?? campusCenter,
-                                        distance: 1000,
-                                        heading: 0,
-                                        pitch: 0)
-                            cameraPosition = .camera(newCamera)
-                        }
-                    }) {
-                        Text(is3DMode ? "2D" : "3D")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(.primary)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background {
-                                Capsule()
-                                    .fill(.thickMaterial)
+                    .onChange(of: isSearching) { _, newValue in
+                        if newValue {
+                            // Dismiss the preview card when starting to search
+                            withAnimation(.spring(response: 0.3)) {
+                                selectedEvent = nil
                             }
+                        }
                     }
-                    .padding(.trailing)
+                
+                // Update the preview card section to use exclusive touch
+                if let selectedEvent = selectedEvent, !isSearching && searchText.isEmpty {
+                    EventPreviewCard(event: selectedEvent, onDismiss: {
+                        withAnimation(.spring(response: 0.3)) {
+                            self.selectedEvent = nil
+                        }
+                    })
+                    .padding(.horizontal)
+                    .padding(.top, 8)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .onTapGesture {
+                        // Only show detail view when explicitly tapping the preview card
+                        viewModel.selectedEventForDetail = selectedEvent
+                    }
+                    .allowsHitTesting(true) // Ensure the preview card can receive touches
+                    .contentShape(Rectangle()) // Maintain tappable area
                 }
-                .padding(.top, 8)
+
+                // 2D/3D Toggle Button - Only show when no preview card and not searching
+                if selectedEvent == nil && !isSearching {
+                    HStack {
+                        Spacer()
+                        Button(action: {
+                            withAnimation(.easeInOut(duration: 0.5)) {
+                                is3DMode.toggle()
+                                let newCamera = is3DMode ?
+                                    MapCamera(centerCoordinate: cameraPosition.region?.center ?? campusCenter,
+                                            distance: 1000,
+                                            heading: 0,
+                                            pitch: 45) :
+                                    MapCamera(centerCoordinate: cameraPosition.region?.center ?? campusCenter,
+                                            distance: 1000,
+                                            heading: 0,
+                                            pitch: 0)
+                                cameraPosition = .camera(newCamera)
+                            }
+                        }) {
+                            Text(is3DMode ? "2D" : "3D")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(.primary)
+                                .frame(width: 44, height: 44)
+                                .background {
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .fill(.thinMaterial)
+                                        .shadow(color: Color.black.opacity(0.1), radius: 1, x: 0, y: 1)
+                                }
+                        }
+                        .padding(.trailing)
+                    }
+                    .padding(.top, 8)
+                }
 
                 if !searchText.isEmpty && isSearching {
                     // Search Results List
-                    ScrollView {
-                        LazyVStack(spacing: 0) {
-                            ForEach(searchResults) { event in
-                                SearchResultRow(event: event) {
-                                    selectedEvent = event
-                                    isSearching = false
-                                    searchText = ""
-                                    withAnimation {
-                                        cameraPosition = .region(MKCoordinateRegion(center: event.location, span: cameraPosition.region?.span ?? initialSpan))
-                                    }
-                                }
-                                .padding(.horizontal)
-                                .padding(.vertical, 8)
-                                
-                                if event.id != searchResults.last?.id {
-                                    Divider()
-                                        .padding(.horizontal)
+                    VStack(spacing: 8) {
+                        ForEach(searchResults) { event in
+                            SearchResultRow(event: event) {
+                                // Go directly to EventDetailView instead of showing preview
+                                viewModel.selectedEventForDetail = event
+                                isSearching = false
+                                searchText = ""
+                                withAnimation {
+                                    cameraPosition = .region(MKCoordinateRegion(center: event.location, span: cameraPosition.region?.span ?? initialSpan))
                                 }
                             }
                         }
-                        .padding(.vertical, 8)
-                    }
-                    .background(Color(.systemBackground))
-                    .cornerRadius(12)
-                    .shadow(color: .black.opacity(0.1), radius: 5)
-                    .padding(.horizontal)
-                    .frame(maxHeight: 300)
-                }
-                
-                if let selectedEvent = selectedEvent {
-                    EventPreviewCard(event: selectedEvent) {
-                        self.selectedEvent = nil
+                        
+                        if searchResults.isEmpty {
+                            Text("No matching events found")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                                .frame(maxWidth: .infinity)
+                                .padding()
+                                .background(Color(.systemBackground))
+                                .cornerRadius(12)
+                        }
                     }
                     .padding(.horizontal)
+                    .padding(.top, 12)
+                    .zIndex(1)
                 }
                 
                 Spacer()
             }
         }
-        .sheet(item: $selectedEvent) { event in
+        .sheet(item: $viewModel.selectedEventForDetail) { event in
             EventDetailView(event: event)
+                .onDisappear {
+                    // Keep the preview card visible when dismissing detail view
+                    if selectedEvent == nil {
+                        selectedEvent = event
+                    }
+                }
         }
         .enableInjection()
     }
     
-    // Computed property to filter events based on search text
+    // Computed property to filter events based on search text and date
     var filteredEvents: [FoodEvent] {
+        let calendar = Calendar.current
+        let today = Date()
+        
         if searchText.isEmpty {
-            return viewModel.foodEvents
-        }
-        return viewModel.foodEvents.filter { event in
-            event.title.localizedCaseInsensitiveContains(searchText) ||
-            event.buildingName.localizedCaseInsensitiveContains(searchText)
+            // When not searching, only show today's events
+            return viewModel.foodEvents.filter { event in
+                calendar.isDate(event.startTime, inSameDayAs: today)
+            }
+        } else {
+            // When searching, show all matching events
+            return viewModel.foodEvents.filter { event in
+                event.title.localizedCaseInsensitiveContains(searchText) ||
+                event.buildingName.localizedCaseInsensitiveContains(searchText) ||
+                event.tags.contains { $0.rawValue.localizedCaseInsensitiveContains(searchText) }
+            }
         }
     }
 }
@@ -231,25 +297,24 @@ struct EventMapMarker: View {
     let isSelected: Bool
     
     var body: some View {
-        VStack(spacing: 4) {
-            if isSelected {
-                Text(event.title)
-                    .font(.caption)
-                    .padding(6)
-                    .background(Color(.systemBackground))
-                    .cornerRadius(8)
-                    .shadow(radius: 2)
-            }
+        ZStack {
+            Circle()
+                .fill(event.isActive ? Color.blue : Color.gray)
+                .frame(width: 32, height: 32)
+                .shadow(radius: isSelected ? 3 : 1)
             
-            ZStack {
+            Image(systemName: "fork.knife")
+                .foregroundColor(.white)
+                .font(.system(size: 16))
+        }
+        .overlay(alignment: .top) {
+            if isSelected {
+                // Small dot indicator for selected state
                 Circle()
-                    .fill(event.isActive ? Color.blue : Color.gray)
-                    .frame(width: 40, height: 40)
-                    .shadow(radius: isSelected ? 4 : 2)
-                
-                Image(systemName: "fork.knife")
-                    .foregroundColor(.white)
-                    .font(.system(size: 20))
+                    .fill(Color.blue)
+                    .frame(width: 8, height: 8)
+                    .padding(.bottom, 4)
+                    .offset(y: -12)
             }
         }
         .animation(.spring(response: 0.3), value: isSelected)
@@ -269,102 +334,156 @@ struct EventPreviewCard: View {
                 
                 Spacer()
                 
+                Text(event.statusInfo.text)
+                    .font(.caption)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(event.statusInfo.color.opacity(0.2))
+                    .foregroundColor(event.statusInfo.color)
+                    .cornerRadius(8)
+                
                 Button(action: onDismiss) {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundColor(.gray)
+                        .imageScale(.medium)
                 }
             }
             
-            if !event.tags.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        ForEach(event.tags, id: \.self) { tag in
-                            Text(tag.rawValue)
-                                .font(.caption2)
-                                .fontWeight(.medium)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 12)
-                                        .fill(tag.color.opacity(0.2))
-                                )
-                                .foregroundColor(tag.color)
-                        }
-                    }
-                }
-            }
-            
+            // Location
             Text(event.buildingName)
                 .font(.subheadline)
                 .foregroundColor(.secondary)
             
+            // Time
             HStack {
                 Image(systemName: "clock")
+                    .imageScale(.small)
                 Text(event.startTime, style: .time)
-                Text("-")
+                Text("•")
                 Text(event.endTime, style: .time)
             }
-            .font(.caption)
+            .font(.subheadline)
             .foregroundColor(.secondary)
             
-            StatusBadge(isActive: event.isActive)
+            // Tags and Details
+            HStack(spacing: 6) {
+                if !event.tags.isEmpty {
+                    // Show first 2 tags in their original order
+                    ForEach(Array(event.tags.prefix(2)), id: \.self) { tag in
+                        Text(tag.rawValue)
+                            .font(.caption)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(tag.color.opacity(0.2))
+                            .foregroundColor(tag.color)
+                            .cornerRadius(8)
+                    }
+                    
+                    if event.tags.count > 2 {
+                        Text("+\(event.tags.count - 2)")
+                            .font(.caption)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color(.systemGray5))
+                            .foregroundColor(.secondary)
+                            .cornerRadius(8)
+                    }
+                }
+                
+                Spacer()
+                
+                Text("Details")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                Image(systemName: "chevron.right")
+                    .imageScale(.small)
+                    .foregroundColor(.secondary)
+            }
         }
-        .padding()
-        .background(Color(.systemBackground))
-        .cornerRadius(12)
-        .shadow(radius: 5)
+        .padding(.vertical, 12)
+        .padding(.horizontal, 16)
+        .background {
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color(.systemBackground))
+                .shadow(color: Color.black.opacity(0.1), radius: 3, x: 0, y: 1)
+        }
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .strokeBorder(Color.gray.opacity(0.1), lineWidth: 0.5)
+        )
+        .contentShape(Rectangle())
     }
 }
 
-// Search Result Row
+// Updated Search Result Row
 struct SearchResultRow: View {
     let event: FoodEvent
     let onSelect: () -> Void
     
     var body: some View {
         Button(action: onSelect) {
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(event.title)
-                        .font(.subheadline)
-                        .fontWeight(.medium)
-                        .foregroundColor(.primary)
-                    
-                    HStack(spacing: 8) {
-                        Text(event.buildingName)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(event.title)
+                            .font(.headline)
                         
-                        if event.isActive {
-                            Text("Active")
-                                .font(.caption2)
-                                .fontWeight(.medium)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(Color.green.opacity(0.2))
-                                .foregroundColor(.green)
-                                .cornerRadius(4)
+                        Text(event.buildingName)
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+                    
+                    Spacer()
+                    
+                    Text(event.statusInfo.text)
+                        .font(.caption)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(event.statusInfo.color.opacity(0.2))
+                        .foregroundColor(event.statusInfo.color)
+                        .cornerRadius(8)
+                    
+                    Image(systemName: "chevron.right")
+                        .foregroundColor(.secondary)
+                        .imageScale(.small)
+                }
+                
+                HStack(spacing: 4) {
+                    Image(systemName: "clock")
+                        .imageScale(.small)
+                    Text(event.startTime, style: .time)
+                    Text("•")
+                    Text(event.endTime, style: .time)
+                }
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                
+                if !event.tags.isEmpty {
+                    HStack(spacing: 6) {
+                        ForEach(event.tags, id: \.self) { tag in
+                            Text(tag.rawValue)
+                                .font(.caption)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(tag.color.opacity(0.2))
+                                .foregroundColor(tag.color)
+                                .cornerRadius(8)
                         }
                     }
                 }
-                
-                Spacer()
-                
-                // Tag icons
-                HStack(spacing: 4) {
-                    ForEach(Array(event.tags.prefix(3)), id: \.self) { tag in
-                        Circle()
-                            .fill(tag.color)
-                            .frame(width: 8, height: 8)
-                    }
-                }
-                
-                Image(systemName: "chevron.right")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
             }
+            .padding(.vertical, 12)
+            .padding(.horizontal, 16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(.systemBackground))
+            .cornerRadius(12)
+            .shadow(color: .black.opacity(0.1), radius: 3, x: 0, y: 1)
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(Color.gray.opacity(0.1), lineWidth: 0.5)
+            )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PlainButtonStyle())
     }
 }
 
@@ -415,6 +534,12 @@ struct SearchBar: View {
                 .onTapGesture {
                     isSearching = true
                 }
+                .onChange(of: searchText) { _, newValue in
+                    // Ensure search state is active if there's text
+                    if !newValue.isEmpty {
+                        isSearching = true
+                    }
+                }
             
             if !searchText.isEmpty {
                 Button(action: {
@@ -434,6 +559,10 @@ struct SearchBar: View {
         }
         .frame(maxWidth: .infinity)
         .frame(height: 44)
+        .onTapGesture {
+            // Ensure the search becomes active when tapping anywhere in the search bar
+            isSearching = true
+        }
     }
 }
 
@@ -474,8 +603,40 @@ extension Double {
     }
 }
 
+// Add this extension at the bottom of the file
+extension FoodEvent {
+    var statusInfo: (text: String, color: Color) {
+        let now = Date()
+        let calendar = Calendar.current
+        
+        // If event has ended
+        if now > endTime {
+            return ("Ended", .red)
+        }
+        
+        // If event is today
+        if calendar.isDate(startTime, inSameDayAs: now) {
+            // If event is in last 15 minutes
+            if now > endTime.addingTimeInterval(-15 * 60) {
+                return ("Ending", .orange)
+            }
+            
+            // If event has started
+            if now >= startTime {
+                return ("Now", .green)
+            }
+            
+            // If event is today but hasn't started
+            return ("Soon", .blue)
+        }
+        
+        // Future event
+        return ("Upcoming", .gray)
+    }
+}
+
 // Preview
 #Preview {
-    MapView(selectedEvent: .constant(nil))
+    MapView()
         .environmentObject(FoodEventsViewModel())
 } 
