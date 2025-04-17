@@ -145,14 +145,39 @@ struct EventDetailView: View {
             }
             .font(.subheadline)
             
-            // Mini map preview
-            Map(coordinateRegion: .constant(MKCoordinateRegion(
-                center: event.location,
+            // Mini map preview with pin and campus boundaries
+            let clampedCenter = CLLocationCoordinate2D(
+                latitude: min(max(event.location.latitude, 37.8631), 37.8791),
+                longitude: min(max(event.location.longitude, -122.2691), -122.2495)
+            )
+            let previewRegion = MKCoordinateRegion(
+                center: clampedCenter,
                 span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
-            )))
+            )
+            
+            Map(position: .constant(.region(previewRegion))) {
+                // Add campus boundary polygon
+                MapPolygon(coordinates: [
+                    CLLocationCoordinate2D(latitude: 37.8791, longitude: -122.2691), // Northwest
+                    CLLocationCoordinate2D(latitude: 37.8791, longitude: -122.2495), // Northeast
+                    CLLocationCoordinate2D(latitude: 37.8631, longitude: -122.2495), // Southeast
+                    CLLocationCoordinate2D(latitude: 37.8631, longitude: -122.2691), // Southwest
+                    CLLocationCoordinate2D(latitude: 37.8791, longitude: -122.2691)  // Back to start
+                ])
+                .stroke(.blue.opacity(0.8), lineWidth: 2)
+                .foregroundStyle(.blue.opacity(0.1))
+                
+                // Add marker for event location
+                Annotation(event.title, coordinate: event.location) {
+                    Image(systemName: "mappin.circle.fill")
+                        .foregroundStyle(.red)
+                        .font(.title)
+                }
+            }
+            .mapStyle(.standard)
+            .allowsHitTesting(false)
             .frame(height: 150)
             .cornerRadius(12)
-            .disabled(true)
         }
     }
     

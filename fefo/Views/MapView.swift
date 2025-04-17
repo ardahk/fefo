@@ -12,20 +12,42 @@ struct MapView: View {
     @State private var searchText = ""
     @State private var is3DMode = false
     @State private var isSearching = false
-    @State private var region: MKCoordinateRegion = MKCoordinateRegion(
-        center: CLLocationCoordinate2D(latitude: 37.8719, longitude: -122.2585),
-        span: MKCoordinateSpan(latitudeDelta: 0.02, longitudeDelta: 0.02)
+    @State private var cameraPosition: MapCameraPosition
+    @State private var lastUpdateTime: Date = Date()
+    private let updateThreshold: TimeInterval = 0.1
+
+    // Define campus boundary coordinates with 1 mile extension (approximately 0.0145 degrees)
+    private let northWest = CLLocationCoordinate2D(latitude: 37.8791 + 0.0145, longitude: -122.2691 - 0.0145)
+    private let northEast = CLLocationCoordinate2D(latitude: 37.8791 + 0.0145, longitude: -122.2495 + 0.0145)
+    private let southEast = CLLocationCoordinate2D(latitude: 37.8631 - 0.0145, longitude: -122.2495 + 0.0145)
+    private let southWest = CLLocationCoordinate2D(latitude: 37.8631 - 0.0145, longitude: -122.2691 - 0.0145)
+
+    // Define campus center and span
+    private let campusCenter = CLLocationCoordinate2D(
+        latitude: (37.8791 + 37.8631) / 2,
+        longitude: (-122.2691 + -122.2495) / 2
     )
-    
-    // Campus boundary coordinates with extra padding
-    private let campusBoundary: [CLLocationCoordinate2D] = [
-        CLLocationCoordinate2D(latitude: 37.8791, longitude: -122.2691), // Northwest
-        CLLocationCoordinate2D(latitude: 37.8791, longitude: -122.2495), // Northeast
-        CLLocationCoordinate2D(latitude: 37.8631, longitude: -122.2495), // Southeast
-        CLLocationCoordinate2D(latitude: 37.8631, longitude: -122.2691), // Southwest
-        CLLocationCoordinate2D(latitude: 37.8791, longitude: -122.2691)  // Back to start
-    ]
-    
+    private let initialSpan = MKCoordinateSpan(
+        latitudeDelta: 0.016,
+        longitudeDelta: 0.0196
+    )
+    // Remove minSpan to allow unlimited zoom in
+    private let maxSpan = MKCoordinateSpan(latitudeDelta: 0.025, longitudeDelta: 0.03) // Slightly larger than initial span
+
+    // Define camera bounds using the correct initializer
+    private var cameraBounds: MapCameraBounds {
+        // Define the bounding region using the widest allowed span
+        let boundingRegion = MKCoordinateRegion(center: campusCenter, span: maxSpan)
+        return MapCameraBounds(centerCoordinateBounds: boundingRegion)
+    }
+
+    // Initialize cameraPosition
+    init(selectedEvent: Binding<FoodEvent?>) {
+        self._selectedEvent = selectedEvent
+        let initialRegion = MKCoordinateRegion(center: campusCenter, span: initialSpan)
+        self._cameraPosition = State(initialValue: .region(initialRegion))
+    }
+
     // Search results computed property
     var searchResults: [FoodEvent] {
         guard !searchText.isEmpty else { return [] }
@@ -40,34 +62,110 @@ struct MapView: View {
     
     var body: some View {
         ZStack(alignment: .top) {
-            Map(coordinateRegion: Binding(
-                get: { region },
-                set: { newRegion in
-                    // Limit the map region to stay within campus bounds with padding
-                    var limitedRegion = newRegion
-                    limitedRegion.center.latitude = min(max(limitedRegion.center.latitude, 37.8631), 37.8791)
-                    limitedRegion.center.longitude = min(max(limitedRegion.center.longitude, -122.2691), -122.2495)
-                    region = limitedRegion
-                }
-            ), showsUserLocation: false, annotationItems: filteredEvents) { event in
-                MapAnnotation(coordinate: event.location) {
-                    EventMapMarker(event: event, isSelected: selectedEvent?.id == event.id)
-                        .onTapGesture {
-                            selectedEvent = event
-                        }
+            Map(position: $cameraPosition) {
+                // Add markers for events
+                ForEach(filteredEvents) { event in
+                    Annotation(event.title, coordinate: event.location) {
+                        EventMapMarker(event: event, isSelected: selectedEvent?.id == event.id)
+                            .onTapGesture {
+                                selectedEvent = event
+                                withAnimation {
+                                    cameraPosition = .region(MKCoordinateRegion(center: event.location, span: cameraPosition.region?.span ?? initialSpan))
+                                }
+                            }
+                    }
                 }
             }
-            .mapStyle(.standard)
+            .mapStyle(.standard(pointsOfInterest: .including([
+                .university,
+                .library,
+                .museum,
+                .stadium,
+                .theater
+            ])))
             .mapControls {
                 MapCompass()
                 MapScaleView()
             }
-            
+            .onMapCameraChange { context in
+                // Prevent too frequent updates
+                let now = Date()
+                guard now.timeIntervalSince(lastUpdateTime) >= updateThreshold else { return }
+                
+                let currentRegion = context.region
+                
+                // Check if we're outside bounds
+                let centerLat = currentRegion.center.latitude
+                let centerLon = currentRegion.center.longitude
+                
+                let isOutsideBounds =
+                    centerLat < southWest.latitude ||
+                    centerLat > northWest.latitude ||
+                    centerLon < northWest.longitude ||
+                    centerLon > northEast.longitude
+                
+                // Check only maximum zoom (allow unlimited zoom in)
+                let spanLatDelta = currentRegion.span.latitudeDelta
+                let spanLonDelta = currentRegion.span.longitudeDelta
+                
+                let isOutsideZoom =
+                    spanLatDelta > maxSpan.latitudeDelta ||
+                    spanLonDelta > maxSpan.longitudeDelta
+                
+                if isOutsideBounds || isOutsideZoom {
+                    // Create a new region that preserves the current zoom level if it's valid
+                    let newRegion = MKCoordinateRegion(
+                        center: isOutsideBounds ? campusCenter : currentRegion.center,
+                        span: isOutsideZoom ? initialSpan : currentRegion.span
+                    )
+                    
+                    // Update the last update time
+                    lastUpdateTime = now
+                    
+                    // Remove the delay and use main thread directly with weak self
+                    withAnimation(.easeOut(duration: 0.5)) {
+                        cameraPosition = .region(newRegion)
+                    }
+                }
+            }
+
             VStack(spacing: 0) {
                 SearchBar(searchText: $searchText, isSearching: $isSearching)
                     .padding(.horizontal)
                     .padding(.top)
                 
+                // 2D/3D Toggle Button
+                HStack {
+                    Spacer()
+                    Button(action: {
+                        withAnimation(.easeInOut(duration: 0.5)) {
+                            is3DMode.toggle()
+                            let newCamera = is3DMode ?
+                                MapCamera(centerCoordinate: cameraPosition.region?.center ?? campusCenter,
+                                        distance: 1000,
+                                        heading: 0,
+                                        pitch: 45) :
+                                MapCamera(centerCoordinate: cameraPosition.region?.center ?? campusCenter,
+                                        distance: 1000,
+                                        heading: 0,
+                                        pitch: 0)
+                            cameraPosition = .camera(newCamera)
+                        }
+                    }) {
+                        Text(is3DMode ? "2D" : "3D")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(.primary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background {
+                                Capsule()
+                                    .fill(.thickMaterial)
+                            }
+                    }
+                    .padding(.trailing)
+                }
+                .padding(.top, 8)
+
                 if !searchText.isEmpty && isSearching {
                     // Search Results List
                     ScrollView {
@@ -78,7 +176,7 @@ struct MapView: View {
                                     isSearching = false
                                     searchText = ""
                                     withAnimation {
-                                        region.center = event.location
+                                        cameraPosition = .region(MKCoordinateRegion(center: event.location, span: cameraPosition.region?.span ?? initialSpan))
                                     }
                                 }
                                 .padding(.horizontal)
@@ -99,26 +197,6 @@ struct MapView: View {
                     .frame(maxHeight: 300)
                 }
                 
-                // 2D/3D Toggle Button
-                HStack {
-                    Spacer()
-                    Button {
-                        withAnimation {
-                            is3DMode.toggle()
-                            updateMapPerspective()
-                        }
-                    } label: {
-                        Image(systemName: is3DMode ? "view.2d" : "view.3d")
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundColor(.primary)
-                            .frame(width: 32, height: 32)
-                            .background(.thinMaterial)
-                            .clipShape(RoundedRectangle(cornerRadius: 6))
-                    }
-                    .accessibilityLabel(is3DMode ? "Switch to 2D view" : "Switch to 3D view")
-                    .padding(.trailing)
-                }
-                
                 if let selectedEvent = selectedEvent {
                     EventPreviewCard(event: selectedEvent) {
                         self.selectedEvent = nil
@@ -132,9 +210,6 @@ struct MapView: View {
         .sheet(item: $selectedEvent) { event in
             EventDetailView(event: event)
         }
-        .onAppear {
-            drawCampusBoundary()
-        }
         .enableInjection()
     }
     
@@ -147,72 +222,6 @@ struct MapView: View {
             event.title.localizedCaseInsensitiveContains(searchText) ||
             event.buildingName.localizedCaseInsensitiveContains(searchText)
         }
-    }
-    
-    // Function to update map perspective (2D/3D)
-    private func updateMapPerspective() {
-        let camera = MKMapCamera(
-            lookingAtCenter: region.center,
-            fromDistance: is3DMode ? 1000 : 2000,
-            pitch: is3DMode ? 45 : 0,
-            heading: 0
-        )
-        
-        if let mapView = findMapView() {
-            mapView.setCamera(camera, animated: true)
-        }
-    }
-    
-    // Helper function to find the MKMapView
-    private func findMapView() -> MKMapView? {
-        let scenes = UIApplication.shared.connectedScenes
-        let windowScene = scenes.first as? UIWindowScene
-        let window = windowScene?.windows.first
-        return findMapViewInView(window)
-    }
-    
-    private func findMapViewInView(_ view: UIView?) -> MKMapView? {
-        guard let view = view else { return nil }
-        if let mapView = view as? MKMapView {
-            return mapView
-        }
-        for subview in view.subviews {
-            if let mapView = findMapViewInView(subview) {
-                return mapView
-            }
-        }
-        return nil
-    }
-    
-    // Function to draw campus boundary
-    private func drawCampusBoundary() {
-        if let mapView = findMapView() {
-            // Remove existing overlays
-            mapView.removeOverlays(mapView.overlays)
-            
-            // Create polygon for campus boundary
-            let polygon = MKPolygon(coordinates: campusBoundary, count: campusBoundary.count)
-            mapView.addOverlay(polygon)
-            
-            // Set delegate to style the polygon
-            mapView.delegate = MapViewDelegate.shared
-        }
-    }
-}
-
-// Map View Delegate to handle overlay styling
-class MapViewDelegate: NSObject, MKMapViewDelegate {
-    static let shared = MapViewDelegate()
-    
-    func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
-        if let polygon = overlay as? MKPolygon {
-            let renderer = MKPolygonRenderer(polygon: polygon)
-            renderer.strokeColor = .systemBlue
-            renderer.lineWidth = 2
-            renderer.fillColor = .systemBlue.withAlphaComponent(0.1)
-            return renderer
-        }
-        return MKOverlayRenderer(overlay: overlay)
     }
 }
 
