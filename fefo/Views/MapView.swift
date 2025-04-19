@@ -74,6 +74,10 @@ struct MapView: View {
                         EventMapMarker(event: event, isSelected: selectedEvent?.id == event.id)
                             .onTapGesture {
                                 withAnimation(.spring(response: 0.3)) {
+                                    // Reset search state when tapping a pin
+                                    isSearching = false
+                                    searchText = ""
+                                    
                                     selectedEvent = event
                                     cameraPosition = .region(MKCoordinateRegion(
                                         center: event.location,
@@ -172,9 +176,15 @@ struct MapView: View {
                             }
                         }
                     }
+                    .onChange(of: searchText) { _, newValue in
+                        // If search text is cleared and not actively searching, allow preview cards
+                        if newValue.isEmpty {
+                            isSearching = false
+                        }
+                    }
                 
-                // Update the preview card section to use exclusive touch
-                if let selectedEvent = selectedEvent, !isSearching && searchText.isEmpty {
+                // Preview Card - Only show when not searching and search text is empty
+                if let selectedEvent = selectedEvent, !isSearching {
                     EventPreviewCard(event: selectedEvent, onDismiss: {
                         withAnimation(.spring(response: 0.3)) {
                             self.selectedEvent = nil
@@ -184,11 +194,9 @@ struct MapView: View {
                     .padding(.top, 8)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                     .onTapGesture {
-                        // Only show detail view when explicitly tapping the preview card
+                        // Only show detail view when tapping the preview card
                         viewModel.selectedEventForDetail = selectedEvent
                     }
-                    .allowsHitTesting(true) // Ensure the preview card can receive touches
-                    .contentShape(Rectangle()) // Maintain tappable area
                 }
 
                 // 2D/3D Toggle Button - Only show when no preview card and not searching
@@ -608,6 +616,8 @@ extension FoodEvent {
     var statusInfo: (text: String, color: Color) {
         let now = Date()
         let calendar = Calendar.current
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "MMM d"
         
         // If event has ended
         if now > endTime {
@@ -627,11 +637,17 @@ extension FoodEvent {
             }
             
             // If event is today but hasn't started
-            return ("Soon", .blue)
+            return ("Today", .blue)
         }
         
-        // Future event
-        return ("Upcoming", .gray)
+        // If event is tomorrow
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: now))!
+        if calendar.isDate(startTime, inSameDayAs: tomorrow) {
+            return ("Tomorrow", Color(red: 0.2, green: 0.5, blue: 0.9)) // Lighter, more vibrant blue
+        }
+        
+        // Future event - show date
+        return (dateFormatter.string(from: startTime), .blue.opacity(0.7)) // Slightly muted blue for future dates
     }
 }
 

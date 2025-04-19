@@ -4,10 +4,115 @@ import MapKit
 import MapboxMaps
 import Combine
 
+// Location search service
+class LocationSearchService: NSObject, ObservableObject, MKLocalSearchCompleterDelegate {
+    @Published var searchQuery = ""
+    @Published var completions: [MKLocalSearchCompletion] = []
+    @Published var selectedLocation: (name: String, coordinate: CLLocationCoordinate2D)?
+    @Published var errorMessage: String?
+    @Published var isSearching = false
+    
+    private let completer: MKLocalSearchCompleter
+    
+    // Berkeley region - expanded to cover the entire city
+    let berkeleyRegion = MKCoordinateRegion(
+        center: CLLocationCoordinate2D(latitude: 37.8715, longitude: -122.2730),
+        span: MKCoordinateSpan(latitudeDelta: 0.06, longitudeDelta: 0.06)
+    )
+    
+    override init() {
+        completer = MKLocalSearchCompleter()
+        super.init()
+        completer.delegate = self
+        completer.region = berkeleyRegion
+        completer.resultTypes = [.pointOfInterest, .query]
+    }
+    
+    func searchLocation(_ query: String) {
+        guard !query.isEmpty else {
+            completions = []
+            isSearching = false
+            return
+        }
+        
+        isSearching = true
+        searchQuery = query
+        completer.queryFragment = query
+    }
+    
+    func completerDidUpdateResults(_ completer: MKLocalSearchCompleter) {
+        // Step 1: Define Berkeley-specific keywords and boundaries
+        let berkeleyKeywords = ["Berkeley", "UC Berkeley", "UCB"]
+        let nonBerkeleyKeywords = ["Oakland", "Emeryville", "Albany", "El Cerrito", "Richmond"]
+        
+        // Step 2: Filter out street suffixes and transport terms
+        let streetSuffixes = ["St", "Street", "Ave", "Avenue", "Blvd", "Boulevard", 
+                            "Rd", "Road", "Ln", "Lane", "Dr", "Drive", "Way", 
+                            "Ct", "Court", "Pl", "Place", "Terrace", "Highway", "Hwy"]
+        
+        let transportTerms = ["BART", "Station", "Transit", "Bus", "Stop", 
+                            "Train", "Airport", "Terminal"]
+        
+        let filteredResults = completer.results.filter { result in
+            let title = result.title
+            let subtitle = result.subtitle
+            
+            // Check if it's explicitly in Berkeley
+            let isInBerkeley = berkeleyKeywords.contains { keyword in
+                subtitle.contains(keyword)
+            }
+            
+            // Check if it's explicitly NOT in Berkeley
+            let isNotInBerkeley = nonBerkeleyKeywords.contains { keyword in
+                subtitle.contains(keyword) || title.contains(keyword)
+            }
+            
+            // Check if it's a street or transport
+            let containsStreetSuffix = streetSuffixes.contains { suffix in
+                title.hasSuffix(" \(suffix)") || title == suffix
+            }
+            
+            let containsTransportTerm = transportTerms.contains { term in
+                title.contains(term)
+            }
+            
+            // Include only if:
+            // 1. It's in Berkeley
+            // 2. Not explicitly in another city
+            // 3. Not a street or transport location
+            return isInBerkeley && !isNotInBerkeley && !containsStreetSuffix && !containsTransportTerm
+        }
+        
+        // Limit to top 3 results
+        completions = Array(filteredResults.prefix(3))
+        
+        // Update error message if no Berkeley results found
+        if completer.results.isEmpty {
+            errorMessage = "No locations found"
+        } else if completions.isEmpty {
+            errorMessage = "No locations found in Berkeley"
+        } else {
+            errorMessage = nil
+        }
+    }
+    
+    func selectLocation(_ completion: MKLocalSearchCompletion) {
+        // This method is now empty and will be removed in the next refactoring
+    }
+    
+    func clearSelection() {
+        selectedLocation = nil
+        errorMessage = nil
+        completions = []
+        isSearching = false
+    }
+}
+
 struct AddEventView: View {
     @ObserveInjection var inject
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var viewModel: FoodEventsViewModel
+    @StateObject private var searchService = LocationSearchService()
     
     @State private var title = ""
     @State private var description = ""
@@ -16,8 +121,6 @@ struct AddEventView: View {
     @State private var endTime = Date().addingTimeInterval(3600)
     @State private var selectedLocation: CLLocationCoordinate2D?
     @State private var searchText = ""
-    @State private var showingLocationSearch = false
-    @State private var selectedLocationName: String = ""
     @State private var selectedTags: [FoodEvent.EventTag] = []
     
     // UC Berkeley's campus region
@@ -32,15 +135,6 @@ struct AddEventView: View {
         )
     )
     
-    var filteredLocations: [MapLandmark] {
-        if searchText.isEmpty {
-            return []
-        }
-        return Constants.berkeleyLandmarks.filter {
-            $0.name.localizedCaseInsensitiveContains(searchText)
-        }
-    }
-    
     var body: some View {
         NavigationView {
             Form {
@@ -52,68 +146,163 @@ struct AddEventView: View {
                 
                 Section("Location") {
                     VStack(alignment: .leading, spacing: 12) {
-                        TextField("Search Location", text: $searchText)
-                            .textFieldStyle(RoundedBorderTextFieldStyle())
-                            .onChange(of: searchText) { _, _ in
-                                showingLocationSearch = !searchText.isEmpty
-                            }
-                        
-                        if !selectedLocationName.isEmpty {
-                            HStack {
-                                Text("Selected: ")
-                                    .foregroundColor(.secondary)
-                                Text(selectedLocationName)
-                                    .fontWeight(.medium)
-                                
-                                Spacer()
-                                
-                                Button {
-                                    selectedLocationName = ""
+                        // Combined search and selection view
+                        LocationSelectionView(
+                            locationName: searchService.selectedLocation?.name ?? "",
+                            onClear: {
+                                searchService.clearSelection()
                                     selectedLocation = nil
+                                buildingName = ""
                                     searchText = ""
-                                } label: {
-                                    Image(systemName: "xmark.circle.fill")
-                                        .foregroundColor(.gray)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                            .padding(.vertical, 8)
-                            .padding(.horizontal, 12)
-                            .background(Color(.systemGray6))
-                            .cornerRadius(8)
-                        }
-                        
-                        if showingLocationSearch && !filteredLocations.isEmpty {
-                            ScrollView {
-                                VStack(alignment: .leading, spacing: 8) {
-                                    ForEach(filteredLocations) { location in
-                                        Button {
-                                            selectLocation(location)
-                                        } label: {
-                                            HStack {
-                                                Image(systemName: location.type.icon)
-                                                    .foregroundColor(.secondary)
-                                                Text(location.name)
-                                                    .foregroundColor(.primary)
-                                            }
-                                            .padding(.vertical, 8)
-                                        }
-                                        Divider()
+                            },
+                            isSelected: searchService.selectedLocation != nil
+                        )
+                        .overlay(
+                            TextField("Search for a location", text: $searchText)
+                                .autocorrectionDisabled()
+                                .padding(.horizontal, 36)
+                                .padding(.vertical, 8)
+                                .opacity(searchService.selectedLocation == nil ? 1 : 0)
+                                .onChange(of: searchText) { _, newValue in
+                                    if newValue.isEmpty {
+                                        searchService.clearSelection()
+                                    } else {
+                                        searchService.searchLocation(newValue)
                                     }
                                 }
-                                .padding(.vertical, 8)
-                            }
-                            .frame(maxHeight: 200)
-                            .background(Color(.systemBackground))
-                            .cornerRadius(8)
-                            .shadow(radius: 2)
+                        )
+                        
+                        if let errorMessage = searchService.errorMessage {
+                            Text(errorMessage)
+                                .foregroundColor(.red)
+                                .font(.caption)
+                                .padding(.horizontal, 4)
                         }
-                    }
-                    
-                    MapPickerView(region: $region, selectedLocation: $selectedLocation)
+                        
+                        if searchService.isSearching && !searchText.isEmpty && !searchService.completions.isEmpty && searchService.selectedLocation == nil {
+                            SearchResultsView(
+                                completions: searchService.completions,
+                                onSelect: { selectedCompletion in
+                                    // Create immutable copies of the selection data to ensure consistency
+                                    let selectedTitle = String(selectedCompletion.title)
+                                    let selectedSubtitle = String(selectedCompletion.subtitle)
+                                    
+                                    // Debug print to verify which completion was selected
+                                    print("Selected: \(selectedTitle)")
+                                    
+                                    // Update UI state first
+                                    searchService.isSearching = false
+                                    searchText = selectedTitle
+                                    
+                                    // Use the exact selected completion to search, not relying on UI updates
+                                    Task {
+                                        // Use our immutable copies for the search
+                                        let searchRequest = MKLocalSearch.Request()
+                                        
+                                        // Special case for UC Berkeley academic buildings (like Wheeler Hall)
+                                        if selectedTitle.contains("Hall") || selectedTitle.contains("Building") || selectedTitle == "Wheeler Hall" {
+                                            // Specifically for Wheeler Hall or other academic buildings, add more context to the search
+                                            searchRequest.naturalLanguageQuery = "\(selectedTitle) UC Berkeley Campus"
+                                            print("Searching for academic building: \(selectedTitle) UC Berkeley Campus")
+                                        } else {
+                                            // Normal search for other locations
+                                            searchRequest.naturalLanguageQuery = "\(selectedTitle) \(selectedSubtitle)"
+                                        }
+                                        searchRequest.region = searchService.berkeleyRegion
+                                        
+                                        // Prioritize point of interest results for university buildings
+                                        searchRequest.resultTypes = [.pointOfInterest]
+                                        
+                                        do {
+                                            let response = try await MKLocalSearch(request: searchRequest).start()
+                                            
+                                            // Debug print all results to help in debugging
+                                            for (index, item) in response.mapItems.enumerated() {
+                                                print("Result \(index): \(item.name ?? "Unknown") at \(item.placemark.coordinate)")
+                                            }
+                                            
+                                            // For university buildings, look through all results for the best match
+                                            if selectedTitle.contains("Hall") || selectedTitle.contains("Building") {
+                                                // Find the best academic building match - prioritize results with "Hall" in the name
+                                                let academicMatches = response.mapItems.filter { item in
+                                                    return (item.name?.contains("Hall") ?? false) || 
+                                                           (item.name?.contains("Building") ?? false) ||
+                                                           (item.placemark.areasOfInterest?.contains(where: { $0.contains("University") || $0.contains("UC Berkeley") }) ?? false)
+                                                }
+                                                
+                                                // Use the first academic match if available, otherwise fall back to first result
+                                                let bestMatch = academicMatches.first ?? response.mapItems.first
+                                                print("Selected best academic match: \(bestMatch?.name ?? "Unknown")")
+                                                
+                                                if let bestMatch = bestMatch {
+                                                    await MainActor.run {
+                                                        // Always use our immutable copy for the name
+                                                        searchService.selectedLocation = (
+                                                            name: selectedTitle,
+                                                            coordinate: bestMatch.placemark.coordinate
+                                                        )
+                                                        
+                                                        selectedLocation = bestMatch.placemark.coordinate
+                                                        buildingName = selectedTitle
+                                                        
+                                                        withAnimation {
+                                                            region.center = bestMatch.placemark.coordinate
+                                                            region.span = MKCoordinateSpan(
+                                                                latitudeDelta: 0.005,
+                                                                longitudeDelta: 0.005
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            } else {
+                                                // Normal processing for non-academic buildings
+                                                if let bestMatch = response.mapItems.first {
+                                                    // Debug print to verify coordinates
+                                                    print("Found: \(bestMatch.name ?? "Unknown") at \(bestMatch.placemark.coordinate)")
+                                                    
+                                                    await MainActor.run {
+                                                        // Always use our immutable copy for the name
+                                                        searchService.selectedLocation = (
+                                                            name: selectedTitle,
+                                                            coordinate: bestMatch.placemark.coordinate
+                                                        )
+                                                        
+                                                        selectedLocation = bestMatch.placemark.coordinate
+                                                        buildingName = selectedTitle
+                                                        
+                                                        withAnimation {
+                                                            region.center = bestMatch.placemark.coordinate
+                                                            region.span = MKCoordinateSpan(
+                                                                latitudeDelta: 0.005,
+                                                                longitudeDelta: 0.005
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        } catch {
+                                            print("Error finding location: \(error)")
+                                        }
+                                    }
+                                }
+                            )
+                        }
+                        
+                        if let location = searchService.selectedLocation {
+                            MapPickerView(region: $region, selectedLocation: $selectedLocation, onLocationPicked: { coordinate in
+                                selectedLocation = coordinate
+                            })
                         .frame(height: 200)
                         .cornerRadius(12)
                         .padding(.vertical, 8)
+                            
+                            // Add a hint text for location adjustment
+                            Text("Tap anywhere on the map to adjust the pin location")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .padding(.horizontal, 4)
+                        }
+                    }
                 }
                 
                 Section("Time") {
@@ -171,8 +360,7 @@ struct AddEventView: View {
     }
     
     private func addEvent() {
-        // Use the map's center if no location is selected
-        let location = selectedLocation ?? region.center
+        guard let location = selectedLocation else { return }
         
         let newEvent = FoodEvent(
             id: UUID(),
@@ -192,29 +380,13 @@ struct AddEventView: View {
         viewModel.addFoodEvent(newEvent)
         dismiss()
     }
-    
-    private func selectLocation(_ landmark: MapLandmark) {
-        buildingName = landmark.name
-        selectedLocationName = landmark.name
-        selectedLocation = landmark.coordinate
-        region.center = landmark.coordinate
-        searchText = ""
-        showingLocationSearch = false
-    }
 }
 
 struct MapPickerView: View {
     @Binding var region: MKCoordinateRegion
     @Binding var selectedLocation: CLLocationCoordinate2D?
-    @State private var is3DMode = true
+    var onLocationPicked: ((CLLocationCoordinate2D) -> Void)?
     
-    // Create a Location struct that conforms to Identifiable
-    private struct Location: Identifiable {
-        let id = UUID()
-        let coordinate: CLLocationCoordinate2D
-    }
-    
-    // Convert optional location to array of Location
     private var annotations: [Location] {
         if let location = selectedLocation {
             return [Location(coordinate: location)]
@@ -231,51 +403,120 @@ struct MapPickerView: View {
         ) { location in
             MapMarker(coordinate: location.coordinate, tint: .red)
         }
-        .overlay(alignment: .topTrailing) {
-            Button(action: {
-                withAnimation {
-                    is3DMode.toggle()
-                    if is3DMode {
-                        region.span = MKCoordinateSpan(
-                            latitudeDelta: 0.01,
-                            longitudeDelta: 0.01
-                        )
-                    } else {
-                        region.span = MKCoordinateSpan(
-                            latitudeDelta: 0.005,
-                            longitudeDelta: 0.005
-                        )
-                    }
-                }
-            }) {
-                Image(systemName: is3DMode ? "view.2d" : "view.3d")
-                    .padding(8)
-                    .background(.thinMaterial)
-                    .clipShape(Circle())
-            }
-            .padding()
-        }
+        .mapStyle(.standard(elevation: .flat, pointsOfInterest: [.university]))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color(.systemGray5), lineWidth: 1)
+        )
         .onTapGesture { location in
-            let coordinate = convertTapToCoordinate(location)
-            selectedLocation = coordinate
-            withAnimation {
-                region.center = coordinate
-            }
+            guard let onLocationPicked = onLocationPicked else { return }
+            
+            // Convert tap to coordinate using advanced technique
+            let tapPoint = location
+            
+            // Get the map's frame size
+            let mapFrame = UIScreen.main.bounds
+            
+            // Calculate relative position within frame (0-1)
+            let relX = Double(tapPoint.x / mapFrame.width)
+            let relY = Double(tapPoint.y / mapFrame.height)
+            
+            // Calculate the tap location as a coordinate
+            let spanHalfLat = region.span.latitudeDelta / 2.0
+            let spanHalfLon = region.span.longitudeDelta / 2.0
+            
+            let newLat = region.center.latitude + (2 * relY - 1) * spanHalfLat
+            let newLon = region.center.longitude - (2 * relX - 1) * spanHalfLon
+            
+            let newCoordinate = CLLocationCoordinate2D(latitude: newLat, longitude: newLon)
+            onLocationPicked(newCoordinate)
         }
     }
     
-    private func convertTapToCoordinate(_ location: CGPoint) -> CLLocationCoordinate2D {
-        // This is a simplified conversion - in real usage you'd want to use proper conversion
-        let span = region.span
-        let center = region.center
-        
-        let deltaLat = span.latitudeDelta
-        let deltaLon = span.longitudeDelta
-        
-        let lat = center.latitude + (deltaLat * 0.5)
-        let lon = center.longitude + (deltaLon * 0.5)
-        
-        return CLLocationCoordinate2D(latitude: lat, longitude: lon)
+    private struct Location: Identifiable {
+        let id = UUID()
+        let coordinate: CLLocationCoordinate2D
+    }
+}
+
+struct LocationSelectionView: View {
+    let locationName: String
+    let onClear: () -> Void
+    let isSelected: Bool
+    
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: isSelected ? "mappin.circle.fill" : "magnifyingglass")
+                .foregroundColor(isSelected ? .blue : .secondary)
+                .frame(width: 24)
+            
+            if isSelected {
+                Text(locationName)
+                    .fontWeight(.medium)
+                    .foregroundColor(.primary)
+            }
+            
+            Spacer()
+            
+            if isSelected {
+                Button(action: onClear) {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(.gray)
+                }
+                .buttonStyle(.plain)
+                .transition(.opacity)
+            }
+        }
+        .padding(.vertical, 8)
+        .padding(.horizontal, 12)
+        .background(Color(.systemGray6))
+        .cornerRadius(8)
+    }
+}
+
+struct SearchResultsView: View {
+    let completions: [MKLocalSearchCompletion]
+    let onSelect: (MKLocalSearchCompletion) -> Void
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Use indices to ensure exact selection
+            ForEach(Array(completions.enumerated()), id: \.element) { index, completion in
+                // Create a new variable for each button to avoid reference issues
+                let thisCompletion = completion
+                
+                Button {
+                    // Use the exact completion object that belongs to this button
+                    onSelect(thisCompletion)
+                } label: {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(completion.title)
+                            .foregroundColor(.primary)
+                            .font(.system(size: 16, weight: .medium))
+                        Text(completion.subtitle)
+                            .font(.system(size: 14))
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.vertical, 8)
+                    .padding(.horizontal, 12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle()) // Ensure the entire area is tappable
+                }
+                .buttonStyle(PlainButtonStyle()) // Use plain style to avoid conflicts
+                
+                if index < completions.count - 1 {
+                    Divider()
+                        .padding(.horizontal, 12)
+                }
+            }
+        }
+        .background(Color(.systemBackground))
+        .cornerRadius(12)
+        .shadow(color: .black.opacity(0.1), radius: 4, x: 0, y: 2)
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color(.systemGray4), lineWidth: 1)
+        )
     }
 }
 
