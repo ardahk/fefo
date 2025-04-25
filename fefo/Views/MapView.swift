@@ -5,10 +5,36 @@ import MapKit
 import CoreLocation
 import Inject
 
+// Add this struct before MapView
+private struct LocationKey: Hashable {
+    let latitude: Double
+    let longitude: Double
+    
+    init(coordinate: CLLocationCoordinate2D) {
+        // Round to 4 decimal places (approximately 11 meters of precision)
+        self.latitude = round(coordinate.latitude * 10000) / 10000
+        self.longitude = round(coordinate.longitude * 10000) / 10000
+    }
+    
+    var coordinate: CLLocationCoordinate2D {
+        CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+    }
+}
+
+struct GroupedEvents: Identifiable {
+    let id = UUID()
+    let location: CLLocationCoordinate2D
+    let events: [FoodEvent]
+    
+    var isMultiple: Bool {
+        events.count > 1
+    }
+}
+
 struct MapView: View {
     @ObserveInjection var inject
     @EnvironmentObject private var viewModel: FoodEventsViewModel
-    @State private var selectedEvent: FoodEvent?
+    @State private var selectedEvents: [FoodEvent]?
     @State private var searchText = ""
     @State private var is3DMode = false
     @State private var isSearching = false
@@ -65,22 +91,31 @@ struct MapView: View {
         return Array(results.prefix(3))
     }
     
+    // Replace the groupedEvents computed property with this:
+    private var groupedEvents: [GroupedEvents] {
+        Dictionary(grouping: filteredEvents) { event in
+            LocationKey(coordinate: event.location)
+        }.map { key, events in
+            GroupedEvents(location: key.coordinate, events: events)
+        }
+    }
+    
     var body: some View {
         ZStack(alignment: .top) {
             Map(position: $cameraPosition) {
-                // Add markers only for visible events to improve performance
-                ForEach(filteredEvents) { event in
-                    Annotation(event.title, coordinate: event.location) {
-                        EventMapMarker(event: event, isSelected: selectedEvent?.id == event.id)
+                // Replace the existing ForEach with this:
+                ForEach(groupedEvents) { group in
+                    Annotation(group.events[0].title, coordinate: group.location) {
+                        EventMapMarker(events: group.events, isSelected: selectedEvents?.contains(where: { $0.id == group.events[0].id }) ?? false)
                             .onTapGesture {
                                 withAnimation(.spring(response: 0.3)) {
                                     // Reset search state when tapping a pin
                                     isSearching = false
                                     searchText = ""
                                     
-                                    selectedEvent = event
+                                    selectedEvents = group.events
                                     cameraPosition = .region(MKCoordinateRegion(
-                                        center: event.location,
+                                        center: group.location,
                                         span: cameraPosition.region?.span ?? initialSpan
                                     ))
                                 }
@@ -88,17 +123,26 @@ struct MapView: View {
                     }
                 }
             }
-            .mapStyle(.standard(pointsOfInterest: .including([
+            .mapStyle(.standard(emphasis: .muted, pointsOfInterest: .including([
                 .university,
                 .library,
                 .museum,
                 .stadium,
                 .theater
             ])))
-            .mapControls {
-                MapCompass()
-                MapScaleView()
-            }
+            .mapControls { }
+            // Add gesture recognizer to dismiss search
+            .simultaneousGesture(
+                TapGesture()
+                    .onEnded { _ in
+                        if isSearching {
+                            withAnimation(.spring(response: 0.3)) {
+                                isSearching = false
+                                searchText = ""
+                            }
+                        }
+                    }
+            )
             .onMapCameraChange { [lastUpdateTime] context in
                 // Using the captured value to avoid capturing self
                 // Prevent too frequent updates
@@ -151,13 +195,13 @@ struct MapView: View {
             .simultaneousGesture(
                 SpatialTapGesture()
                     .onEnded { value in
-                        // Only dismiss if tap is not on a pin or preview card
-                        if selectedEvent != nil {
-                            // Check if tap is in the preview card area
-                            let isInPreviewCard = value.location.y > UIScreen.main.bounds.height - 150 // Approximate preview card height
-                            if !isInPreviewCard {
+                        if let currentEvents = selectedEvents { // Use selectedEvents directly
+                            // Approximate height check (adjust if necessary)
+                            let previewAreaHeight = currentEvents.count < 3 ? CGFloat(currentEvents.count) * 100 + 16 + 50 : 350
+                            let isInPreviewArea = value.location.y > UIScreen.main.bounds.height - previewAreaHeight
+                            if !isInPreviewArea {
                                 withAnimation(.spring(response: 0.3)) {
-                                    selectedEvent = nil
+                                    selectedEvents = nil
                                 }
                             }
                         }
@@ -172,7 +216,7 @@ struct MapView: View {
                         if newValue {
                             // Dismiss the preview card when starting to search
                             withAnimation(.spring(response: 0.3)) {
-                                selectedEvent = nil
+                                selectedEvents = nil
                             }
                         }
                     }
@@ -183,24 +227,11 @@ struct MapView: View {
                         }
                     }
                 
-                // Preview Card - Only show when not searching and search text is empty
-                if let selectedEvent = selectedEvent, !isSearching {
-                    EventPreviewCard(event: selectedEvent, onDismiss: {
-                        withAnimation(.spring(response: 0.3)) {
-                            self.selectedEvent = nil
-                        }
-                    })
-                    .padding(.horizontal)
-                    .padding(.top, 8)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                    .onTapGesture {
-                        // Only show detail view when tapping the preview card
-                        viewModel.selectedEventForDetail = selectedEvent
-                    }
-                }
+                // Display preview cards using the helper method
+                previewCardView
 
                 // 2D/3D Toggle Button - Only show when no preview card and not searching
-                if selectedEvent == nil && !isSearching {
+                if selectedEvents == nil && !isSearching {
                     HStack {
                         Spacer()
                         Button(action: {
@@ -240,8 +271,10 @@ struct MapView: View {
                             SearchResultRow(event: event) {
                                 // Go directly to EventDetailView instead of showing preview
                                 viewModel.selectedEventForDetail = event
-                                isSearching = false
-                                searchText = ""
+                                withAnimation(.spring(response: 0.3)) {
+                                    isSearching = false
+                                    searchText = ""
+                                }
                                 withAnimation {
                                     cameraPosition = .region(MKCoordinateRegion(center: event.location, span: cameraPosition.region?.span ?? initialSpan))
                                 }
@@ -261,6 +294,10 @@ struct MapView: View {
                     .padding(.horizontal)
                     .padding(.top, 12)
                     .zIndex(1)
+                    .transition(.asymmetric(
+                        insertion: .opacity.combined(with: .move(edge: .top)),
+                        removal: .opacity.combined(with: .move(edge: .top))
+                    ))
                 }
                 
                 Spacer()
@@ -269,13 +306,105 @@ struct MapView: View {
         .sheet(item: $viewModel.selectedEventForDetail) { event in
             EventDetailView(event: event)
                 .onDisappear {
-                    // Keep the preview card visible when dismissing detail view
-                    if selectedEvent == nil {
-                        selectedEvent = event
+                    // Keep the preview cards visible when dismissing detail view
+                    if selectedEvents == nil {
+                        selectedEvents = [event]
                     }
                 }
         }
         .enableInjection()
+    }
+    
+    // Extracted ViewBuilder for Preview Cards
+    @ViewBuilder
+    private var previewCardView: some View {
+        if let events = selectedEvents, !isSearching {
+            if events.count < 3 {
+                // Simple VStack for 1-2 events (non-scrollable)
+                VStack(spacing: 6) {
+                    ForEach(events) { event in
+                        EventPreviewCard(event: event, onDismiss: {
+                            withAnimation(.spring(response: 0.3)) {
+                                self.selectedEvents = nil
+                            }
+                        })
+                        .onTapGesture {
+                            viewModel.selectedEventForDetail = event
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(
+                    Color(.systemBackground)
+                        .opacity(0.01)
+                )
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                
+            } else {
+                // ScrollView with fades for 3+ events
+                GeometryReader { geometry in
+                    ScrollView(.vertical, showsIndicators: false) {
+                        GeometryReader { scrollGeometry in
+                            Color.clear.preference(key: ScrollOffsetPreferenceKey.self,
+                                value: scrollGeometry.frame(in: .named("scroll")).minY)
+                        }
+                        .frame(height: 0)
+                        // Moved preference change handler here
+                        .onPreferenceChange(ScrollOffsetPreferenceKey.self) { value in
+                             scrollOffset = value
+                        }
+
+                        VStack(spacing: 6) {
+                            ForEach(events) { event in
+                                EventPreviewCard(event: event, onDismiss: {
+                                    withAnimation(.spring(response: 0.3)) {
+                                        self.selectedEvents = nil
+                                    }
+                                })
+                                .onTapGesture {
+                                    viewModel.selectedEventForDetail = event
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                    }
+                    .coordinateSpace(name: "scroll")
+                    .frame(maxHeight: 300)
+                    .background(
+                        Color(.systemBackground)
+                            .opacity(0.01)
+                    )
+                    .mask(
+                        VStack(spacing: 0) {
+                            // Top fade
+                            LinearGradient(
+                                gradient: Gradient(colors: [.clear, .black]),
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                            .frame(height: 20)
+                            .opacity(scrollOffset < 0 ? 1 : 0)
+                            
+                            // Main content area
+                            Rectangle().fill(Color.black)
+                            
+                            // Bottom fade
+                            LinearGradient(
+                                gradient: Gradient(colors: [.black, .clear]),
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                            .frame(height: 20)
+                        }
+                    )
+                    .disabled(events.count < 3)
+                }
+                .frame(maxHeight: 300)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
     }
     
     // Computed property to filter events based on search text and date
@@ -297,27 +426,57 @@ struct MapView: View {
             }
         }
     }
+
+    // Add this preference key at the bottom of the MapView struct
+    @State private var scrollOffset: CGFloat = 0
 }
 
-// Enhanced Event Map Marker
+// Replace the existing EventMapMarker with this updated version
 struct EventMapMarker: View {
-    let event: FoodEvent
+    let events: [FoodEvent]
     let isSelected: Bool
+    
+    private var isMultiple: Bool {
+        events.count > 1
+    }
     
     var body: some View {
         ZStack {
+            // Background cards for multiple events
+            if isMultiple {
+                // Right card
+                Circle()
+                    .fill(events[0].isActive ? Color.blue : Color.gray)
+                    .frame(width: 32, height: 32)
+                    .offset(x: 16)
+                    .shadow(radius: isSelected ? 3 : 1)
+                
+                // Middle card
+                Circle()
+                    .fill(events[0].isActive ? Color.blue : Color.gray)
+                    .frame(width: 32, height: 32)
+                    .offset(x: 8)
+                    .shadow(radius: isSelected ? 3 : 1)
+            }
+            
+            // Main card
             Circle()
-                .fill(event.isActive ? Color.blue : Color.gray)
+                .fill(events[0].isActive ? Color.blue : Color.gray)
                 .frame(width: 32, height: 32)
                 .shadow(radius: isSelected ? 3 : 1)
             
-            Image(systemName: "fork.knife")
-                .foregroundColor(.white)
-                .font(.system(size: 16))
+            if isMultiple {
+                Text("\(events.count)")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundColor(.white)
+            } else {
+                Image(systemName: "fork.knife")
+                    .foregroundColor(.white)
+                    .font(.system(size: 16))
+            }
         }
         .overlay(alignment: .top) {
             if isSelected {
-                // Small dot indicator for selected state
                 Circle()
                     .fill(Color.blue)
                     .frame(width: 8, height: 8)
@@ -329,16 +488,17 @@ struct EventMapMarker: View {
     }
 }
 
-// Preview card when pin is selected
+// Updated EventPreviewCard with optimized spacing
 struct EventPreviewCard: View {
     let event: FoodEvent
     let onDismiss: () -> Void
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .center) {
                 Text(event.title)
                     .font(.headline)
+                    .lineLimit(1)
                 
                 Spacer()
                 
@@ -354,16 +514,21 @@ struct EventPreviewCard: View {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundColor(.gray)
                         .imageScale(.medium)
+                        .frame(width: 44, height: 44)
                 }
             }
             
-            // Location
-            Text(event.buildingName)
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-            
-            // Time
-            HStack {
+            HStack(spacing: 4) {
+                // Location
+                Text(event.buildingName)
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                
+                Text("•")
+                    .foregroundColor(.secondary)
+                
+                // Time
                 Image(systemName: "clock")
                     .imageScale(.small)
                 Text(event.startTime, style: .time)
@@ -376,40 +541,42 @@ struct EventPreviewCard: View {
             // Tags and Details
             HStack(spacing: 6) {
                 if !event.tags.isEmpty {
-                    // Show first 2 tags in their original order
                     ForEach(Array(event.tags.prefix(2)), id: \.self) { tag in
                         Text(tag.rawValue)
                             .font(.caption)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
                             .background(tag.color.opacity(0.2))
                             .foregroundColor(tag.color)
-                            .cornerRadius(8)
+                            .cornerRadius(6)
                     }
                     
                     if event.tags.count > 2 {
                         Text("+\(event.tags.count - 2)")
                             .font(.caption)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
                             .background(Color(.systemGray5))
                             .foregroundColor(.secondary)
-                            .cornerRadius(8)
+                            .cornerRadius(6)
                     }
                 }
                 
                 Spacer()
                 
-                Text("Details")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                Image(systemName: "chevron.right")
-                    .imageScale(.small)
-                    .foregroundColor(.secondary)
+                HStack(spacing: 2) {
+                    Text("Details")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                    Image(systemName: "chevron.right")
+                        .imageScale(.small)
+                        .foregroundColor(.secondary)
+                }
+                .padding(.vertical, 3)
             }
         }
-        .padding(.vertical, 12)
-        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .padding(.horizontal, 12)
         .background {
             RoundedRectangle(cornerRadius: 12)
                 .fill(Color(.systemBackground))
@@ -648,6 +815,14 @@ extension FoodEvent {
         
         // Future event - show date
         return (dateFormatter.string(from: startTime), .blue.opacity(0.7)) // Slightly muted blue for future dates
+    }
+}
+
+// Add this preference key definition before the EventMapMarker struct
+struct ScrollOffsetPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
     }
 }
 
