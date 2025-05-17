@@ -265,38 +265,130 @@ struct MapView: View {
                 }
 
                 if !searchText.isEmpty && isSearching {
-                    // Search Results List
-                    VStack(spacing: 8) {
-                        ForEach(searchResults) { event in
-                            SearchResultRow(event: event) {
-                                // Go directly to EventDetailView instead of showing preview
-                                viewModel.selectedEventForDetail = event
-                                withAnimation(.spring(response: 0.3)) {
-                                    isSearching = false
-                                    searchText = ""
+                    // Enhanced Search Results List with matching event preview card behavior
+                    VStack(spacing: 0) {
+                        if searchResults.count < 3 {
+                            // Simple VStack for 1-2 events (non-scrollable)
+                            VStack(spacing: 6) {
+                                ForEach(searchResults) { event in
+                                    SearchResultRow(event: event) {
+                                        viewModel.selectedEventForDetail = event
+                                        withAnimation(.spring(response: 0.3)) {
+                                            isSearching = false
+                                            searchText = ""
+                                        }
+                                        withAnimation(.easeInOut(duration: 0.3)) {
+                                            cameraPosition = .region(MKCoordinateRegion(
+                                                center: event.location,
+                                                span: cameraPosition.region?.span ?? initialSpan
+                                            ))
+                                        }
+                                    }
+                                    .transition(.asymmetric(
+                                        insertion: .scale(scale: 0.95).combined(with: .opacity),
+                                        removal: .scale(scale: 0.95).combined(with: .opacity)
+                                    ))
                                 }
-                                withAnimation {
-                                    cameraPosition = .region(MKCoordinateRegion(center: event.location, span: cameraPosition.region?.span ?? initialSpan))
+                                
+                                if searchResults.isEmpty {
+                                    Text("No matching events found")
+                                        .font(.subheadline)
+                                        .foregroundColor(.secondary)
+                                        .frame(maxWidth: .infinity)
+                                        .padding()
+                                        .background(Color(.systemBackground))
+                                        .cornerRadius(12)
+                                        .transition(.opacity)
                                 }
                             }
-                        }
-                        
-                        if searchResults.isEmpty {
-                            Text("No matching events found")
-                                .font(.subheadline)
-                                .foregroundColor(.secondary)
-                                .frame(maxWidth: .infinity)
-                                .padding()
-                                .background(Color(.systemBackground))
-                                .cornerRadius(12)
+                            .padding(.horizontal, 16)
+                            .padding(.top, 4)
+                            .padding(.bottom, 8)
+                            .background(
+                                Color(.systemBackground)
+                                    .opacity(0.01)
+                            )
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                            
+                        } else {
+                            // ScrollView with fades for 3+ events
+                            GeometryReader { geometry in
+                                VStack(spacing: 0) {
+                                    ScrollView(.vertical, showsIndicators: false) {
+                                        GeometryReader { scrollGeometry in
+                                            Color.clear.preference(key: ScrollOffsetPreferenceKey.self,
+                                                value: scrollGeometry.frame(in: .named("searchScroll")).minY)
+                                        }
+                                        .frame(height: 0)
+                                        .onPreferenceChange(ScrollOffsetPreferenceKey.self) { value in
+                                            searchScrollOffset = value
+                                        }
+
+                                        VStack(spacing: 6) {
+                                            ForEach(searchResults) { event in
+                                                SearchResultRow(event: event) {
+                                                    viewModel.selectedEventForDetail = event
+                                                    withAnimation(.spring(response: 0.3)) {
+                                                        isSearching = false
+                                                        searchText = ""
+                                                    }
+                                                    withAnimation(.easeInOut(duration: 0.3)) {
+                                                        cameraPosition = .region(MKCoordinateRegion(
+                                                            center: event.location,
+                                                            span: cameraPosition.region?.span ?? initialSpan
+                                                        ))
+                                                    }
+                                                }
+                                                .transition(.asymmetric(
+                                                    insertion: .scale(scale: 0.95).combined(with: .opacity),
+                                                    removal: .scale(scale: 0.95).combined(with: .opacity)
+                                                ))
+                                            }
+                                        }
+                                        .padding(.horizontal, 16)
+                                        .padding(.top, 4)
+                                        .padding(.bottom, 8)
+                                    }
+                                    .coordinateSpace(name: "searchScroll")
+                                    .frame(height: 220) // Height to show 2 full events and peek at the third
+                                    .background(
+                                        Color(.systemBackground)
+                                            .opacity(0.01)
+                                    )
+                                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                                    .mask(
+                                        VStack(spacing: 0) {
+                                            // Top fade - softer for better aesthetics
+                                            LinearGradient(
+                                                gradient: Gradient(colors: [.clear, .black]),
+                                                startPoint: .top,
+                                                endPoint: .bottom
+                                            )
+                                            .frame(height: 12)
+                                            .opacity(searchScrollOffset < 0 ? 1 : 0)
+                                            
+                                            // Main content area
+                                            Rectangle().fill(Color.black)
+                                            
+                                            // Bottom fade
+                                            LinearGradient(
+                                                gradient: Gradient(colors: [.black, .clear]),
+                                                startPoint: .top,
+                                                endPoint: .bottom
+                                            )
+                                            .frame(height: 20)
+                                        }
+                                    )
+                                }
+                            }
+                            .frame(height: 220)
                         }
                     }
-                    .padding(.horizontal)
-                    .padding(.top, 12)
+                    .padding(.top, 4) // Reduced top padding to bring results closer to search bar
                     .zIndex(1)
                     .transition(.asymmetric(
-                        insertion: .opacity.combined(with: .move(edge: .top)),
-                        removal: .opacity.combined(with: .move(edge: .top))
+                        insertion: .opacity.combined(with: .move(edge: .top).animation(.spring(response: 0.3, dampingFraction: 0.7))),
+                        removal: .opacity.combined(with: .move(edge: .top).animation(.spring(response: 0.3, dampingFraction: 0.7)))
                     ))
                 }
                 
@@ -344,65 +436,72 @@ struct MapView: View {
             } else {
                 // ScrollView with fades for 3+ events
                 GeometryReader { geometry in
-                    ScrollView(.vertical, showsIndicators: false) {
-                        GeometryReader { scrollGeometry in
-                            Color.clear.preference(key: ScrollOffsetPreferenceKey.self,
-                                value: scrollGeometry.frame(in: .named("scroll")).minY)
-                        }
-                        .frame(height: 0)
-                        // Moved preference change handler here
-                        .onPreferenceChange(ScrollOffsetPreferenceKey.self) { value in
-                             scrollOffset = value
-                        }
+                    VStack(spacing: 0) {
+                        // Add padding above the ScrollView
+                        Spacer()
+                            .frame(height: 12)
+                        
+                        ScrollView(.vertical, showsIndicators: false) {
+                            GeometryReader { scrollGeometry in
+                                Color.clear.preference(key: ScrollOffsetPreferenceKey.self,
+                                    value: scrollGeometry.frame(in: .named("scroll")).minY)
+                            }
+                            .frame(height: 0)
+                            // Moved preference change handler here
+                            .onPreferenceChange(ScrollOffsetPreferenceKey.self) { value in
+                                 scrollOffset = value
+                            }
 
-                        VStack(spacing: 6) {
-                            ForEach(events) { event in
-                                EventPreviewCard(event: event, onDismiss: {
-                                    withAnimation(.spring(response: 0.3)) {
-                                        self.selectedEvents = nil
+                            VStack(spacing: 6) {
+                                ForEach(events) { event in
+                                    EventPreviewCard(event: event, onDismiss: {
+                                        withAnimation(.spring(response: 0.3)) {
+                                            self.selectedEvents = nil
+                                        }
+                                    })
+                                    .onTapGesture {
+                                        viewModel.selectedEventForDetail = event
                                     }
-                                })
-                                .onTapGesture {
-                                    viewModel.selectedEventForDetail = event
                                 }
                             }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
+                        .coordinateSpace(name: "scroll")
+                        .frame(maxHeight: 288) // Slightly reduced max height to accommodate the top padding
+                        .background(
+                            Color(.systemBackground)
+                                .opacity(0.01)
+                        )
+                        .mask(
+                            VStack(spacing: 0) {
+                                // Top fade
+                                LinearGradient(
+                                    gradient: Gradient(colors: [.clear, .black]),
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
+                                .frame(height: 20)
+                                .opacity(scrollOffset < 0 ? 1 : 0)
+                                
+                                // Main content area
+                                Rectangle().fill(Color.black)
+                                
+                                // Bottom fade
+                                LinearGradient(
+                                    gradient: Gradient(colors: [.black, .clear]),
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
+                                .frame(height: 20)
+                            }
+                        )
+                        .disabled(events.count < 3)
                     }
-                    .coordinateSpace(name: "scroll")
                     .frame(maxHeight: 300)
-                    .background(
-                        Color(.systemBackground)
-                            .opacity(0.01)
-                    )
-                    .mask(
-                        VStack(spacing: 0) {
-                            // Top fade
-                            LinearGradient(
-                                gradient: Gradient(colors: [.clear, .black]),
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                            .frame(height: 20)
-                            .opacity(scrollOffset < 0 ? 1 : 0)
-                            
-                            // Main content area
-                            Rectangle().fill(Color.black)
-                            
-                            // Bottom fade
-                            LinearGradient(
-                                gradient: Gradient(colors: [.black, .clear]),
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                            .frame(height: 20)
-                        }
-                    )
-                    .disabled(events.count < 3)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
                 .frame(maxHeight: 300)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
     }
@@ -429,6 +528,7 @@ struct MapView: View {
 
     // Add this preference key at the bottom of the MapView struct
     @State private var scrollOffset: CGFloat = 0
+    @State private var searchScrollOffset: CGFloat = 0
 }
 
 // Replace the existing EventMapMarker with this updated version
@@ -442,30 +542,54 @@ struct EventMapMarker: View {
     
     var body: some View {
         ZStack {
-            // Background cards for multiple events
-            if isMultiple {
-                // Right card
+            // Different visualization based on event count
+            if events.count >= 3 {
+                // Three circles for 3+ events
+                // Right circle
                 Circle()
                     .fill(events[0].isActive ? Color.blue : Color.gray)
                     .frame(width: 32, height: 32)
                     .offset(x: 16)
                     .shadow(radius: isSelected ? 3 : 1)
                 
-                // Middle card
+                // Middle circle
                 Circle()
                     .fill(events[0].isActive ? Color.blue : Color.gray)
                     .frame(width: 32, height: 32)
                     .offset(x: 8)
                     .shadow(radius: isSelected ? 3 : 1)
+                
+                // Main circle
+                Circle()
+                    .fill(events[0].isActive ? Color.blue : Color.gray)
+                    .frame(width: 32, height: 32)
+                    .shadow(radius: isSelected ? 3 : 1)
+                
+            } else if events.count == 2 {
+                // Two circles for exactly 2 events
+                // Right circle
+                Circle()
+                    .fill(events[0].isActive ? Color.blue : Color.gray)
+                    .frame(width: 32, height: 32)
+                    .offset(x: 12)
+                    .shadow(radius: isSelected ? 3 : 1)
+                
+                // Main circle
+                Circle()
+                    .fill(events[0].isActive ? Color.blue : Color.gray)
+                    .frame(width: 32, height: 32)
+                    .shadow(radius: isSelected ? 3 : 1)
+                
+            } else {
+                // Single circle for 1 event
+                Circle()
+                    .fill(events[0].isActive ? Color.blue : Color.gray)
+                    .frame(width: 32, height: 32)
+                    .shadow(radius: isSelected ? 3 : 1)
             }
             
-            // Main card
-            Circle()
-                .fill(events[0].isActive ? Color.blue : Color.gray)
-                .frame(width: 32, height: 32)
-                .shadow(radius: isSelected ? 3 : 1)
-            
-            if isMultiple {
+            // Content inside the main circle
+            if events.count > 1 {
                 Text("\(events.count)")
                     .font(.system(size: 14, weight: .bold))
                     .foregroundColor(.white)
@@ -493,10 +617,19 @@ struct EventPreviewCard: View {
     let event: FoodEvent
     let onDismiss: () -> Void
     
+    // Add title display logic with character limit
+    private var displayTitle: String {
+        let maxLength = 15 
+        if event.title.count > maxLength {
+            return String(event.title.prefix(maxLength)) + "..."
+        }
+        return event.title
+    }
+    
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .center) {
-                Text(event.title)
+                Text(displayTitle)
                     .font(.headline)
                     .lineLimit(1)
                 
@@ -595,18 +728,21 @@ struct SearchResultRow: View {
     let event: FoodEvent
     let onSelect: () -> Void
     
+    private var displayTitle: String {
+        let maxLength = 15
+        if event.title.count > maxLength {
+            return String(event.title.prefix(maxLength)) + "..."
+        }
+        return event.title
+    }
+    
     var body: some View {
         Button(action: onSelect) {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(event.title)
-                            .font(.headline)
-                        
-                        Text(event.buildingName)
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                    }
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .center) {
+                    Text(displayTitle)
+                        .font(.headline)
+                        .lineLimit(1)
                     
                     Spacer()
                     
@@ -624,6 +760,14 @@ struct SearchResultRow: View {
                 }
                 
                 HStack(spacing: 4) {
+                    Text(event.buildingName)
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                    
+                    Text("•")
+                        .foregroundColor(.secondary)
+                    
                     Image(systemName: "clock")
                         .imageScale(.small)
                     Text(event.startTime, style: .time)
@@ -635,28 +779,40 @@ struct SearchResultRow: View {
                 
                 if !event.tags.isEmpty {
                     HStack(spacing: 6) {
-                        ForEach(event.tags, id: \.self) { tag in
+                        ForEach(Array(event.tags.prefix(2)), id: \.self) { tag in
                             Text(tag.rawValue)
                                 .font(.caption)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 3)
                                 .background(tag.color.opacity(0.2))
                                 .foregroundColor(tag.color)
-                                .cornerRadius(8)
+                                .cornerRadius(6)
+                        }
+                        
+                        if event.tags.count > 2 {
+                            Text("+\(event.tags.count - 2)")
+                                .font(.caption)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 3)
+                                .background(Color(.systemGray5))
+                                .foregroundColor(.secondary)
+                                .cornerRadius(6)
                         }
                     }
                 }
             }
-            .padding(.vertical, 12)
-            .padding(.horizontal, 16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(.systemBackground))
-            .cornerRadius(12)
-            .shadow(color: .black.opacity(0.1), radius: 3, x: 0, y: 1)
+            .padding(.vertical, 8)
+            .padding(.horizontal, 12)
+            .background {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color(.systemBackground))
+                    .shadow(color: Color.black.opacity(0.1), radius: 3, x: 0, y: 1)
+            }
             .overlay(
                 RoundedRectangle(cornerRadius: 12)
                     .strokeBorder(Color.gray.opacity(0.1), lineWidth: 0.5)
             )
+            .contentShape(RoundedRectangle(cornerRadius: 12)) // Ensure tap area matches visual shape
         }
         .buttonStyle(PlainButtonStyle())
     }
@@ -707,23 +863,34 @@ struct SearchBar: View {
                 .autocorrectionDisabled()
                 .textInputAutocapitalization(.never)
                 .onTapGesture {
-                    isSearching = true
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        isSearching = true
+                    }
                 }
                 .onChange(of: searchText) { _, newValue in
                     // Ensure search state is active if there's text
-                    if !newValue.isEmpty {
-                        isSearching = true
+                    if !newValue.isEmpty && !isSearching {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            isSearching = true
+                        }
                     }
                 }
             
             if !searchText.isEmpty {
                 Button(action: {
-                    searchText = ""
-                    isSearching = false
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                        searchText = ""
+                        // Only dismiss search UI if text is cleared via the button
+                        if searchText.isEmpty {
+                            isSearching = false
+                        }
+                    }
                 }) {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundColor(.gray)
+                        .transition(.scale.combined(with: .opacity))
                 }
+                .transition(.scale.combined(with: .opacity))
             }
         }
         .padding(12)
@@ -736,7 +903,9 @@ struct SearchBar: View {
         .frame(height: 44)
         .onTapGesture {
             // Ensure the search becomes active when tapping anywhere in the search bar
-            isSearching = true
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                isSearching = true
+            }
         }
     }
 }

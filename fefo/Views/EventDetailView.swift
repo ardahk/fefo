@@ -11,12 +11,52 @@ struct EventDetailView: View {
     @State private var newComment = ""
     @State private var selectedAttendance: FoodEvent.AttendanceStatus?
     
+    // Add computed property for navigation bar title
+    private var navigationTitle: String {
+        let maxLength = 35  // Longer limit for nav bar since it can scroll
+        if event.title.count > maxLength {
+            return String(event.title.prefix(maxLength)) + "..."
+        }
+        return event.title
+    }
+    
     var body: some View {
         NavigationView {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    // Event Info
-                    eventInfoSection
+                    // Event Info with full title
+                    VStack(alignment: .leading, spacing: 12) {
+                        // Show full title at the top of the content if it was truncated in nav bar
+                        if event.title.count > 35 {
+                            Text(event.title)
+                                .font(.title2)
+                                .fontWeight(.bold)
+                        }
+                        
+                        Text(event.description)
+                            .font(.body)
+                        
+                        HStack {
+                            Label {
+                                Text(event.startTime, style: .time)
+                            } icon: {
+                                Image(systemName: "clock")
+                            }
+                            
+                            Text("-")
+                            
+                            Text(event.endTime, style: .time)
+                        }
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        
+                        HStack {
+                            Image(systemName: "person.fill")
+                            Text("Posted by \(event.createdBy)")
+                        }
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                    }
                     
                     // Tags Section
                     if !event.tags.isEmpty {
@@ -89,7 +129,7 @@ struct EventDetailView: View {
                 }
                 .padding()
             }
-            .navigationTitle(event.title)
+            .navigationTitle(navigationTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
@@ -104,34 +144,6 @@ struct EventDetailView: View {
             }
         }
         .enableInjection()
-    }
-    
-    private var eventInfoSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(event.description)
-                .font(.body)
-            
-            HStack {
-                Label {
-                    Text(event.startTime, style: .time)
-                } icon: {
-                    Image(systemName: "clock")
-                }
-                
-                Text("-")
-                
-                Text(event.endTime, style: .time)
-            }
-            .font(.subheadline)
-            .foregroundColor(.secondary)
-            
-            HStack {
-                Image(systemName: "person.fill")
-                Text("Posted by \(event.createdBy)")
-            }
-            .font(.subheadline)
-            .foregroundColor(.secondary)
-        }
     }
     
     private var locationSection: some View {

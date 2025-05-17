@@ -428,21 +428,17 @@ struct MapPickerView: View {
     @Binding var isPinDraggable: Bool
     var onLocationPicked: ((CLLocationCoordinate2D) -> Void)?
     
-    private var annotations: [Location] {
-        if let location = selectedLocation {
-            return [Location(coordinate: location)]
-        }
-        return []
-    }
-    
     var body: some View {
-        Map(coordinateRegion: $region,
-            interactionModes: .all,
-            showsUserLocation: false,
-            userTrackingMode: .none,
-            annotationItems: annotations
-        ) { location in
-            MapMarker(coordinate: location.coordinate, tint: .red)
+        Map(position: .constant(MapCameraPosition.region(region))) {
+            if let location = selectedLocation {
+                Marker("Selected Location", coordinate: location)
+                    .tint(.red)
+            }
+        }
+        .onMapCameraChange { context in
+            DispatchQueue.main.async {
+                self.region = context.region
+            }
         }
         .mapStyle(.standard(elevation: .flat, pointsOfInterest: [.university]))
         .overlay(
@@ -484,11 +480,6 @@ struct MapPickerView: View {
             let newCoordinate = CLLocationCoordinate2D(latitude: newLat, longitude: newLon)
             onLocationPicked(newCoordinate)
         }
-    }
-    
-    private struct Location: Identifiable {
-        let id = UUID()
-        let coordinate: CLLocationCoordinate2D
     }
 }
 
