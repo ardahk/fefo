@@ -2,6 +2,7 @@ import SwiftUI
 import Inject
 
 struct EventListView: View {
+    @ObserveInjection var inject
     @EnvironmentObject private var viewModel: FoodEventsViewModel
     @State private var selectedEvent: FoodEvent?
     

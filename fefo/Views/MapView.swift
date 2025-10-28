@@ -34,6 +34,7 @@ struct GroupedEvents: Identifiable {
 struct MapView: View {
     @ObserveInjection var inject
     @EnvironmentObject private var viewModel: FoodEventsViewModel
+    @Binding var showingProfile: Bool
     @State private var selectedEvents: [FoodEvent]?
     @State private var searchText = ""
     @State private var is3DMode = false
@@ -71,7 +72,8 @@ struct MapView: View {
     }
 
     // Initialize cameraPosition and cached regions
-    init() {
+    init(showingProfile: Binding<Bool>) {
+        self._showingProfile = showingProfile
         let initRegion = MKCoordinateRegion(center: campusCenter, span: initialSpan)
         self.initialRegion = initRegion
         self._cameraPosition = State(initialValue: .region(initRegion))
@@ -209,23 +211,41 @@ struct MapView: View {
             )
 
             VStack(spacing: 0) {
-                SearchBar(searchText: $searchText, isSearching: $isSearching)
-                    .padding(.horizontal)
-                    .padding(.top)
-                    .onChange(of: isSearching) { _, newValue in
-                        if newValue {
-                            // Dismiss the preview card when starting to search
-                            withAnimation(.spring(response: 0.3)) {
-                                selectedEvents = nil
+                // Search bar and profile icon row
+                HStack(spacing: 12) {
+                    SearchBar(searchText: $searchText, isSearching: $isSearching)
+                        .onChange(of: isSearching) { _, newValue in
+                            if newValue {
+                                // Dismiss the preview card when starting to search
+                                withAnimation(.spring(response: 0.3)) {
+                                    selectedEvents = nil
+                                }
                             }
                         }
-                    }
-                    .onChange(of: searchText) { _, newValue in
-                        // If search text is cleared and not actively searching, allow preview cards
-                        if newValue.isEmpty {
-                            isSearching = false
+                        .onChange(of: searchText) { _, newValue in
+                            // If search text is cleared and not actively searching, allow preview cards
+                            if newValue.isEmpty {
+                                isSearching = false
+                            }
                         }
+                    
+                    // Profile Icon Button
+                    Button {
+                        showingProfile = true
+                    } label: {
+                        Image(systemName: "person.circle.fill")
+                            .font(.system(size: 28))
+                            .foregroundColor(ColorTheme.primary)
+                            .frame(width: 44, height: 44)
+                            .background {
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(Color(.systemBackground))
+                                    .shadow(color: .black.opacity(0.1), radius: 5)
+                            }
                     }
+                }
+                .padding(.horizontal)
+                .padding(.top)
                 
                 // Display preview cards using the helper method
                 previewCardView
@@ -261,7 +281,7 @@ struct MapView: View {
                         }
                         .padding(.trailing)
                     }
-                    .padding(.top, 8)
+                    .padding(.top, 4)
                 }
 
                 if !searchText.isEmpty && isSearching {
@@ -994,9 +1014,3 @@ struct ScrollOffsetPreferenceKey: PreferenceKey {
         value = nextValue()
     }
 }
-
-// Preview
-#Preview {
-    MapView()
-        .environmentObject(FoodEventsViewModel())
-} 

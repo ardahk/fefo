@@ -10,6 +10,14 @@ struct EventDetailView: View {
     let event: FoodEvent
     @State private var newComment = ""
     @State private var selectedAttendance: FoodEvent.AttendanceStatus?
+    @State private var isDescriptionExpanded = false
+    @State private var showCommentLengthAlert = false
+    
+    // Limits
+    private let descriptionCollapsedLineLimit = 5
+    private let descriptionCollapseThreshold = 220 // show More... if description is longer than this
+    private let descriptionCharacterLimit = 1000
+    private let commentCharacterLimit = 280
     
     // Add computed property for navigation bar title
     private var navigationTitle: String {
@@ -33,8 +41,31 @@ struct EventDetailView: View {
                                 .fontWeight(.bold)
                         }
                         
-                        Text(event.description)
-                            .font(.body)
+                        // Collapsible description (render markdown)
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(try! AttributedString(markdown: event.description))
+                                .font(.body)
+                                .lineLimit(isDescriptionExpanded ? nil : descriptionCollapsedLineLimit)
+                                .animation(.easeInOut(duration: 0.2), value: isDescriptionExpanded)
+                            
+                            if event.description.count > descriptionCollapseThreshold {
+                                Button(isDescriptionExpanded ? "Show less" : "More…") {
+                                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                                        isDescriptionExpanded.toggle()
+                                    }
+                                }
+                                .font(.subheadline)
+                                .foregroundColor(.blue)
+                                .buttonStyle(.plain)
+                            }
+                            
+                            // Show proximity to limit only when description is close to the limit
+                            if event.description.count >= Int(Double(descriptionCharacterLimit) * 0.8) {
+                                Text("\(event.description.count)/\(descriptionCharacterLimit) characters")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
                         
                         HStack {
                             Label {
@@ -129,6 +160,11 @@ struct EventDetailView: View {
                 }
                 .padding()
             }
+            .onChange(of: newComment) { _, newValue in
+                if newValue.count > commentCharacterLimit {
+                    newComment = String(newValue.prefix(commentCharacterLimit))
+                }
+            }
             .navigationTitle(navigationTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -142,6 +178,7 @@ struct EventDetailView: View {
                     statusBadge
                 }
             }
+            // No alerts for comment length; we hard-cap input below
         }
         .enableInjection()
     }
@@ -168,25 +205,11 @@ struct EventDetailView: View {
             )
             
             Map(position: .constant(.region(previewRegion))) {
-                // Add campus boundary polygon
-                MapPolygon(coordinates: [
-                    CLLocationCoordinate2D(latitude: 37.8791, longitude: -122.2691), // Northwest
-                    CLLocationCoordinate2D(latitude: 37.8791, longitude: -122.2495), // Northeast
-                    CLLocationCoordinate2D(latitude: 37.8631, longitude: -122.2495), // Southeast
-                    CLLocationCoordinate2D(latitude: 37.8631, longitude: -122.2691), // Southwest
-                    CLLocationCoordinate2D(latitude: 37.8791, longitude: -122.2691)  // Back to start
-                ])
-                .stroke(.blue.opacity(0.8), lineWidth: 2)
-                .foregroundStyle(.blue.opacity(0.1))
-                
                 // Add marker for event location
-                Annotation(event.title, coordinate: event.location) {
-                    Image(systemName: "mappin.circle.fill")
-                        .foregroundStyle(.red)
-                        .font(.title)
-                }
+                Marker(event.buildingName, coordinate: event.location)
+                    .tint(.red)
             }
-            .mapStyle(.standard)
+            .mapStyle(.standard(elevation: .flat, pointsOfInterest: [.university]))
             .allowsHitTesting(false)
             .frame(height: 150)
             .cornerRadius(12)
@@ -260,8 +283,11 @@ struct EventDetailView: View {
     }
     
     private func submitComment() {
-        let trimmedComment = newComment.trimmingCharacters(in: .whitespacesAndNewlines)
+        var trimmedComment = newComment.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedComment.isEmpty else { return }
+        if trimmedComment.count > commentCharacterLimit {
+            trimmedComment = String(trimmedComment.prefix(commentCharacterLimit))
+        }
         
         viewModel.addComment(to: event.id, text: trimmedComment)
         newComment = ""

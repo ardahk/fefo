@@ -19,31 +19,11 @@ struct ContentView: View {
     var body: some View {
         TabView(selection: $selectedTab) {
             // Map Tab
-            NavigationView {
-                MapView()
-                    .navigationBarTitleDisplayMode(.inline)
-                    .toolbar {
-                        ToolbarItem(placement: .principal) {
-                            Text("FeFo")
-                                .font(.system(size: 24, weight: .bold))
-                                .foregroundColor(ColorTheme.primary)
-                        }
-                        
-                        ToolbarItem(placement: .navigationBarTrailing) {
-                            Button {
-                                showingProfile = true
-                            } label: {
-                                Image(systemName: "person.circle.fill")
-                                    .font(.system(size: 24))
-                                    .foregroundColor(ColorTheme.primary)
-                            }
-                        }
-                    }
-            }
-            .tag(0)
-            .tabItem {
-                Label("Map", systemImage: "map")
-            }
+            MapView(showingProfile: $showingProfile)
+                .tag(0)
+                .tabItem {
+                    Label("Map", systemImage: "map")
+                }
             
             // Events Tab
             NavigationView {
