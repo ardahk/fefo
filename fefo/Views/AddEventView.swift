@@ -348,35 +348,27 @@ struct AddEventView: View {
                         let showsFormattedPreview = containsMarkdown(description)
                         ZStack(alignment: .topLeading) {
                             if showsFormattedPreview {
-                                // Render formatted preview instead of raw markdown; tap to edit full-screen
+                                // Show plain text preview with proper line breaks
                                 ScrollView {
-                                    Group {
-                                        if let att = try? AttributedString(markdown: description) {
-                                            Text(att)
-                                                .frame(maxWidth: .infinity, alignment: .leading)
-                                        } else {
-                                            Text(description)
-                                                .frame(maxWidth: .infinity, alignment: .leading)
-                                        }
-                                    }
-                                    .font(.body)
-                                    .padding(.top, 8)
-                                    .padding(.leading, 3)
+                                    Text(description)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .font(.body)
+                                        .padding(.top, 8)
+                                        .padding(.leading, 3)
                                 }
                                 .frame(height: 160)
                                 .contentShape(Rectangle())
                                 .onTapGesture { isShowingFullDescriptionEditor = true }
                             } else {
                                 TextEditor(text: $description)
-                                    .frame(height: 160) // Fixed height: content scrolls, form row stays stable
+                                    .frame(height: 160)
                                     .scrollContentBackground(.hidden)
-                                    .background(Color(.systemBackground)) // Match form cell background
+                                    .background(Color(.systemBackground))
                                     .onChange(of: description) { _, newValue in
                                         if newValue.count > descriptionCharacterLimit {
                                             description = String(newValue.prefix(descriptionCharacterLimit))
                                         }
-                                        // Auto-escalate to full-screen editor when long
-                                        if newValue.count > 400 && !isShowingFullDescriptionEditor {
+                                        if newValue.count > 10 && !isShowingFullDescriptionEditor {
                                             isShowingFullDescriptionEditor = true
                                         }
                                     }
@@ -494,11 +486,28 @@ struct AddEventView: View {
 
 // Lightweight markdown detection to decide whether to show formatted preview
 private func containsMarkdown(_ text: String) -> Bool {
-    // detect **bold** or *italic* or list item "- "
-    if text.contains("**") { return true }
-    if text.contains("*") { return true }
-    if text.contains("\n- ") || text.hasPrefix("- ") { return true }
-    return false
+    // Just check if text has content and newlines
+    return text.contains("\n") || text.count > 80
+}
+
+// Lightweight markdown sanitizer and line-break normalizer
+private func sanitizeMarkdownForDisplay(_ text: String) -> String {
+    var t = text
+    // Neutralize invalid anchor links which may cause parser issues
+    t = t.replacingOccurrences(of: "](#)", with: "](about:blank)")
+    // Replace common horizontal rule with an em-dash line
+    t = t.replacingOccurrences(of: "\n---\n", with: "\n—\n")
+    return t
+}
+
+private func normalizeLineBreaksForDisplay(_ text: String) -> String {
+    // Keep as-is if likely contains block markdown (lists, code blocks etc.)
+    let hasBlocks = text.hasPrefix("- ") || text.contains("\n- ") || text.hasPrefix("* ") || text.contains("\n* ")
+    if hasBlocks { return text }
+    let placeholder = "§§PARA§§"
+    let step1 = text.replacingOccurrences(of: "\n\n", with: placeholder)
+    let step2 = step1.replacingOccurrences(of: "\n", with: "  \n")
+    return step2.replacingOccurrences(of: placeholder, with: "\n\n")
 }
 
 // MARK: - Full-screen description editor
@@ -506,23 +515,22 @@ private struct DescriptionEditorSheet: View {
     @Binding var text: String
     let limit: Int
     @Environment(\.dismiss) private var dismiss
-    @State private var action: RichAction? = nil
-    @State private var attributed = NSMutableAttributedString(string: "")
     
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
-                RichTextView(attributedText: $attributed, limit: limit, action: $action)
-                    .padding(.horizontal)
-                    .padding(.top)
-                    .onAppear {
-                        attributed = RichTextView.markdownToAttributed(text)
+                TextEditor(text: $text)
+                    .padding()
+                    .onChange(of: text) { _, newValue in
+                        if newValue.count > limit {
+                            text = String(newValue.prefix(limit))
+                        }
                     }
                 HStack {
                     Spacer()
-                    Text("\(min(attributed.string.count, limit))/\(limit)")
+                    Text("\(min(text.count, limit))/\(limit)")
                         .font(.caption2)
-                        .foregroundColor(attributed.string.count >= limit ? .red : .secondary)
+                        .foregroundColor(text.count >= limit ? .red : .secondary)
                         .padding(.trailing)
                         .padding(.bottom, 26)
                 }
@@ -533,7 +541,6 @@ private struct DescriptionEditorSheet: View {
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Done") {
-                        text = RichTextView.attributedToMarkdown(attributed)
                         dismiss()
                     }
                     .font(.headline)
@@ -546,65 +553,29 @@ private struct DescriptionEditorSheet: View {
     }
 }
 
-private enum RichAction { case bold, italic, bullet }
+private enum RichAction { }
 
 private struct RichTextView: UIViewRepresentable {
-    @Binding var attributedText: NSMutableAttributedString
+    @Binding var text: String
     let limit: Int
-    @Binding var action: RichAction?
     
     class Coordinator: NSObject, UITextViewDelegate {
         var parent: RichTextView
         var textView: UITextView?
-        var insertBulletOnNextChange = false
         
         init(parent: RichTextView) { self.parent = parent }
         
         func textViewDidChangeSelection(_ textView: UITextView) { self.textView = textView }
         
         func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
-            // Character limit
-            let current = textView.attributedText.string as NSString
+            let current = textView.text as NSString
             let prospective = current.replacingCharacters(in: range, with: text)
             if prospective.count > parent.limit { return false }
-            
-            if text == "\n" {
-                let loc = max(range.location - 1, 0)
-                let paraRange = current.paragraphRange(for: NSRange(location: loc, length: 0))
-                let para = current.substring(with: paraRange)
-                if para.trimmingCharacters(in: .whitespacesAndNewlines) == "-" || para.trimmingCharacters(in: .whitespacesAndNewlines) == "-" {
-                    // Double enter on empty bullet -> remove bullet and end list
-                    if let start = textView.position(from: textView.beginningOfDocument, offset: paraRange.location),
-                       let end = textView.position(from: textView.beginningOfDocument, offset: paraRange.location + paraRange.length) {
-                        textView.replace(textView.textRange(from: start, to: end)!, withText: "\n")
-                    }
-                    return false
-                }
-                if para.hasPrefix("- ") { insertBulletOnNextChange = true }
-            }
             return true
         }
         
         func textViewDidChange(_ textView: UITextView) {
-            if insertBulletOnNextChange {
-                insertBulletOnNextChange = false
-                if let range = textView.selectedTextRange { textView.replace(range, withText: "- ") }
-            }
-            parent.attributedText = NSMutableAttributedString(attributedString: textView.attributedText)
-        }
-
-        // MARK: - Keyboard toolbar actions
-        @objc func tapBold() {
-            guard let tv = textView else { return }
-            parent.toggleTrait(.traitBold, in: tv)
-        }
-        @objc func tapItalic() {
-            guard let tv = textView else { return }
-            parent.toggleTrait(.traitItalic, in: tv)
-        }
-        @objc func tapBullet() {
-            guard let tv = textView else { return }
-            parent.insertBullet(in: tv)
+            parent.text = textView.text
         }
     }
     
@@ -613,309 +584,197 @@ private struct RichTextView: UIViewRepresentable {
     func makeUIView(context: Context) -> UITextView {
         let tv = UITextView()
         tv.delegate = context.coordinator
-        // Preferred text styling
-        let base = UIFontMetrics(forTextStyle: .body).scaledFont(for: UIFont.systemFont(ofSize: 17))
-        tv.font = UIFont(descriptor: base.fontDescriptor.withSymbolicTraits([]) ?? base.fontDescriptor, size: base.pointSize + 2)
+        let base = UIFont.preferredFont(forTextStyle: .body)
+        tv.font = base
         tv.adjustsFontForContentSizeCategory = true
         tv.isScrollEnabled = true
         tv.alwaysBounceVertical = true
-        // Ensure initial attributed text has the base font so bold/italic toggles work visibly
-        if attributedText.length == 0 {
-            tv.attributedText = NSAttributedString(string: "", attributes: [.font: tv.font!])
-        } else {
-            tv.attributedText = normalizeFonts(in: attributedText, base: tv.font!)
-        }
-        tv.typingAttributes[.font] = tv.font
-        // Keyboard accessory with elevated controls following iOS margins
-        let toolbar = UIToolbar()
-        toolbar.translatesAutoresizingMaskIntoConstraints = false
-        let bold = UIBarButtonItem(title: "B", style: .plain, target: context.coordinator, action: #selector(Coordinator.tapBold))
-        let italic = UIBarButtonItem(title: "I", style: .plain, target: context.coordinator, action: #selector(Coordinator.tapItalic))
-        let flex = UIBarButtonItem(barButtonSystemItem: .flexibleSpace, target: nil, action: nil)
-        let bullet = UIBarButtonItem(title: "•", style: .plain, target: context.coordinator, action: #selector(Coordinator.tapBullet))
-        toolbar.setItems([bold, italic, flex, bullet], animated: false)
-        
-        let accessory = UIView(frame: CGRect(x: 0, y: 0, width: 0, height: 64))
-        accessory.backgroundColor = .clear
-        accessory.addSubview(toolbar)
-        
-        // Layout: inset horizontally and raise buttons a bit from the bottom for comfortable tapping
-        let margins = accessory.layoutMarginsGuide
-        NSLayoutConstraint.activate([
-            toolbar.leadingAnchor.constraint(equalTo: margins.leadingAnchor, constant: 8),
-            toolbar.trailingAnchor.constraint(equalTo: margins.trailingAnchor, constant: -8),
-            toolbar.bottomAnchor.constraint(equalTo: accessory.safeAreaLayoutGuide.bottomAnchor, constant: -10),
-            toolbar.heightAnchor.constraint(equalToConstant: 36)
-        ])
-        tv.inputAccessoryView = accessory
+        tv.text = text
         context.coordinator.textView = tv
         return tv
     }
     
     func updateUIView(_ uiView: UITextView, context: Context) {
-        // Normalize any incoming attributed text so it uses the editor's base size from the first character
-        let baseFont = uiView.font ?? UIFont.preferredFont(forTextStyle: .body)
-        let normalized = normalizeFonts(in: attributedText, base: baseFont)
-        if uiView.attributedText != normalized {
-            uiView.attributedText = normalized
-        }
-        uiView.typingAttributes[.font] = baseFont
-        if let action = action {
-            switch action {
-            case .bold: toggleTrait(.traitBold, in: uiView)
-            case .italic: toggleTrait(.traitItalic, in: uiView)
-            case .bullet: insertBullet(in: uiView)
-            }
-            DispatchQueue.main.async { self.action = nil }
+        if uiView.text != text {
+            uiView.text = text
         }
     }
-    
-    private func toggleTrait(_ trait: UIFontDescriptor.SymbolicTraits, in tv: UITextView) {
-        let range = tv.selectedRange
-        guard range.length > 0 else { return }
-        tv.textStorage.beginEditing()
-        tv.textStorage.enumerateAttribute(.font, in: range, options: []) { value, subRange, _ in
-            let current = (value as? UIFont) ?? UIFont.preferredFont(forTextStyle: .body)
-            var traits = current.fontDescriptor.symbolicTraits
-            if traits.contains(trait) { traits.remove(trait) } else { traits.insert(trait) }
-            if let newDesc = current.fontDescriptor.withSymbolicTraits(traits) {
-                let newFont = UIFont(descriptor: newDesc, size: current.pointSize)
-                tv.textStorage.addAttribute(.font, value: newFont, range: subRange)
-            }
-        }
-        tv.textStorage.endEditing()
-        attributedText = NSMutableAttributedString(attributedString: tv.attributedText)
-    }
-    
-    
-    
-    private func insertBullet(in tv: UITextView) {
-        if let range = tv.selectedTextRange {
-            tv.replace(range, withText: (tv.text.isEmpty || tv.text.last == "\n") ? "- " : "\n- ")
-        }
-        attributedText = NSMutableAttributedString(attributedString: tv.attributedText)
-    }
-    
-    // Apply the base font size to the whole attributed string while preserving bold/italic traits
-    private func normalizeFonts(in incoming: NSAttributedString, base: UIFont) -> NSMutableAttributedString {
-        let mutable = NSMutableAttributedString(attributedString: incoming)
-        let fullRange = NSRange(location: 0, length: mutable.length)
-        var lastIndex = 0
-        mutable.enumerateAttributes(in: fullRange, options: []) { attrs, range, _ in
-            let currentFont = (attrs[.font] as? UIFont) ?? base
-            let traits = currentFont.fontDescriptor.symbolicTraits
-            let desc = base.fontDescriptor.withSymbolicTraits(traits) ?? base.fontDescriptor
-            let newFont = UIFont(descriptor: desc, size: base.pointSize)
-            mutable.addAttribute(.font, value: newFont, range: range)
-            lastIndex = range.location + range.length
-        }
-        if lastIndex < mutable.length {
-            let desc = base.fontDescriptor
-            let newFont = UIFont(descriptor: desc, size: base.pointSize)
-            mutable.addAttribute(.font, value: newFont, range: NSRange(location: lastIndex, length: mutable.length - lastIndex))
-        }
-        return mutable
-    }
-    
-    // Markdown conversion helpers
-    static func markdownToAttributed(_ markdown: String) -> NSMutableAttributedString {
-        if let att = try? NSAttributedString(AttributedString(markdown: markdown)) {
-            return NSMutableAttributedString(attributedString: att)
-        }
-        return NSMutableAttributedString(string: markdown)
-    }
-    
-    static func attributedToMarkdown(_ attributed: NSAttributedString) -> String {
-        var result = ""
-        attributed.enumerateAttributes(in: NSRange(location: 0, length: attributed.length), options: []) { attrs, range, _ in
-            let substring = (attributed.string as NSString).substring(with: range)
-            var open = "", close = ""
-            if let font = attrs[.font] as? UIFont {
-                let traits = font.fontDescriptor.symbolicTraits
-                if traits.contains(.traitBold) { open += "**"; close = "**" + close }
-                if traits.contains(.traitItalic) { open += "*"; close = "*" + close }
-            }
-            result += open + substring + close
-        }
-        return result
-    }
-
 }
+
+private struct MapPickerView: View {
+    @Binding var region: MKCoordinateRegion
+    @Binding var selectedLocation: CLLocationCoordinate2D?
+    @Binding var isPinDraggable: Bool
+    var onLocationPicked: ((CLLocationCoordinate2D) -> Void)?
     
-    struct MapPickerView: View {
-        @Binding var region: MKCoordinateRegion
-        @Binding var selectedLocation: CLLocationCoordinate2D?
-        @Binding var isPinDraggable: Bool
-        var onLocationPicked: ((CLLocationCoordinate2D) -> Void)?
-        
-        var body: some View {
-            Map(position: .constant(MapCameraPosition.region(region))) {
-                if let location = selectedLocation {
-                    Marker("Selected Location", coordinate: location)
-                        .tint(.red)
-                }
+    var body: some View {
+        Map(position: .constant(MapCameraPosition.region(region))) {
+            if let location = selectedLocation {
+                Marker("Selected Location", coordinate: location)
+                    .tint(.red)
             }
-            .onMapCameraChange { context in
-                DispatchQueue.main.async {
-                    self.region = context.region
-                }
+        }
+        .onMapCameraChange { context in
+            DispatchQueue.main.async {
+                self.region = context.region
             }
-            .mapStyle(.standard(elevation: .flat, pointsOfInterest: [.university]))
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(Color(.systemGray5), lineWidth: 1)
-            )
-            .overlay(
-                Group {
-                    if selectedLocation == nil {
-                        Color(.systemBackground)
-                            .opacity(0.7)
-                            .overlay(
-                                VStack(spacing: 8) {
-                                    Text("Search for a location above")
-                                        .foregroundColor(.secondary)
-                                    Text("or tap here to drop a pin")
-                                        .foregroundColor(.blue)
-                                }
-                            )
-                            .onTapGesture {
-                                isPinDraggable = true
-                                onLocationPicked?(region.center)
+        }
+        .mapStyle(.standard(elevation: .flat, pointsOfInterest: [.university]))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color(.systemGray5), lineWidth: 1)
+        )
+        .overlay(
+            Group {
+                if selectedLocation == nil {
+                    Color(.systemBackground)
+                        .opacity(0.7)
+                        .overlay(
+                            VStack(spacing: 8) {
+                                Text("Search for a location above")
+                                    .foregroundColor(.secondary)
+                                Text("or tap here to drop a pin")
+                                    .foregroundColor(.blue)
                             }
-                    }
-                }
-            )
-            .onTapGesture { location in
-                guard let onLocationPicked = onLocationPicked,
-                      isPinDraggable else { return }
-                
-                let tapPoint = location
-                let mapFrame = UIScreen.main.bounds
-                let relX = Double(tapPoint.x / mapFrame.width)
-                let relY = Double(tapPoint.y / mapFrame.height)
-                let spanHalfLat = region.span.latitudeDelta / 2.0
-                let spanHalfLon = region.span.longitudeDelta / 2.0
-                let newLat = region.center.latitude + (2 * relY - 1) * spanHalfLat
-                let newLon = region.center.longitude - (2 * relX - 1) * spanHalfLon
-                let newCoordinate = CLLocationCoordinate2D(latitude: newLat, longitude: newLon)
-                onLocationPicked(newCoordinate)
-            }
-        }
-    }
-    
-    struct LocationSelectionView: View {
-        let locationName: String
-        let onClear: () -> Void
-        let isSelected: Bool
-        
-        var body: some View {
-            HStack(spacing: 12) {
-                Image(systemName: isSelected ? "mappin.circle.fill" : "magnifyingglass")
-                    .foregroundColor(isSelected ? .blue : .secondary)
-                    .frame(width: 24)
-                    .animation(.spring(response: 0.3, dampingFraction: 0.8), value: isSelected)
-                
-                if isSelected {
-                    Text(locationName)
-                        .fontWeight(.medium)
-                        .foregroundColor(.primary)
-                        .transition(.move(edge: .leading).combined(with: .opacity))
-                }
-                
-                Spacer()
-                
-                if isSelected {
-                    Button(action: onClear) {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundColor(.gray)
-                    }
-                    .buttonStyle(.plain)
-                    .transition(.scale.combined(with: .opacity))
-                }
-            }
-            .padding(.vertical, 8)
-            .padding(.horizontal, 12)
-            .background(Color(.systemGray6))
-            .cornerRadius(8)
-            .animation(.spring(response: 0.3, dampingFraction: 0.8), value: isSelected)
-        }
-    }
-    
-    struct SearchResultsView: View {
-        let completions: [MKLocalSearchCompletion]
-        let onSelect: (MKLocalSearchCompletion) -> Void
-        
-        private let minTouchTargetSize: CGFloat = 44 // Apple's minimum touch target size
-        
-        var body: some View {
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(completions.enumerated()), id: \.element) { index, completion in
-                    let thisCompletion = completion
-                    
-                    Button {
-                        onSelect(thisCompletion)
-                    } label: {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(completion.title)
-                                .foregroundColor(.primary)
-                                .font(.system(size: 16, weight: .medium))
-                            Text(completion.subtitle)
-                                .font(.system(size: 14))
-                                .foregroundColor(.secondary)
+                        )
+                        .onTapGesture {
+                            isPinDraggable = true
+                            onLocationPicked?(region.center)
                         }
-                        .padding(.vertical, 12)
-                        .padding(.horizontal, 16)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .frame(minHeight: minTouchTargetSize) // Ensure minimum touch target size
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                    
-                    if index < completions.count - 1 {
-                        Divider()
-                            .padding(.horizontal, 16)
-                    }
                 }
             }
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color(.systemBackground))
-                    .shadow(color: .black.opacity(0.1), radius: 4, x: 0, y: 2)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(Color(.systemGray4), lineWidth: 0.5)
-            )
+        )
+        .onTapGesture { location in
+            guard let onLocationPicked = onLocationPicked,
+                  isPinDraggable else { return }
+            
+            let tapPoint = location
+            let mapFrame = UIScreen.main.bounds
+            let relX = Double(tapPoint.x / mapFrame.width)
+            let relY = Double(tapPoint.y / mapFrame.height)
+            let spanHalfLat = region.span.latitudeDelta / 2.0
+            let spanHalfLon = region.span.longitudeDelta / 2.0
+            let newLat = region.center.latitude + (2 * relY - 1) * spanHalfLat
+            let newLon = region.center.longitude - (2 * relX - 1) * spanHalfLon
+            let newCoordinate = CLLocationCoordinate2D(latitude: newLat, longitude: newLon)
+            onLocationPicked(newCoordinate)
         }
     }
+}
+
+private struct LocationSelectionView: View {
+    let locationName: String
+    let onClear: () -> Void
+    let isSelected: Bool
     
-    struct TagButton: View {
-        let tag: FoodEvent.EventTag
-        let isSelected: Bool
-        let action: () -> Void
-        
-        var body: some View {
-            Button(action: action) {
-                Text(tag.rawValue)
-                    .font(.caption)
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: isSelected ? "mappin.circle.fill" : "magnifyingglass")
+                .foregroundColor(isSelected ? .blue : .secondary)
+                .frame(width: 24)
+                .animation(.spring(response: 0.3, dampingFraction: 0.8), value: isSelected)
+            
+            if isSelected {
+                Text(locationName)
                     .fontWeight(.medium)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(
-                        RoundedRectangle(cornerRadius: 16)
-                            .fill(isSelected ? tag.color.opacity(0.2) : Color(.systemGray6))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 16)
-                                    .strokeBorder(isSelected ? tag.color : Color.clear, lineWidth: 1)
-                            )
-                    )
-                    .foregroundColor(isSelected ? tag.color : .secondary)
+                    .foregroundColor(.primary)
+                    .transition(.move(edge: .leading).combined(with: .opacity))
+            }
+            
+            Spacer()
+            
+            if isSelected {
+                Button(action: onClear) {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(.gray)
+                }
+                .buttonStyle(.plain)
+                .transition(.scale.combined(with: .opacity))
             }
         }
+        .padding(.vertical, 8)
+        .padding(.horizontal, 12)
+        .background(Color(.systemGray6))
+        .cornerRadius(8)
+        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: isSelected)
     }
+}
+
+private struct SearchResultsView: View {
+    let completions: [MKLocalSearchCompletion]
+    let onSelect: (MKLocalSearchCompletion) -> Void
     
-    #Preview {
-        AddEventView()
-            .environmentObject(FoodEventsViewModel())
+    private let minTouchTargetSize: CGFloat = 44 // Apple's minimum touch target size
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(completions.enumerated()), id: \.element) { index, completion in
+                let thisCompletion = completion
+                
+                Button {
+                    onSelect(thisCompletion)
+                } label: {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(completion.title)
+                            .foregroundColor(.primary)
+                            .font(.system(size: 16, weight: .medium))
+                        Text(completion.subtitle)
+                            .font(.system(size: 14))
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.vertical, 12)
+                    .padding(.horizontal, 16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(minHeight: minTouchTargetSize) // Ensure minimum touch target size
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(PlainButtonStyle())
+                
+                if index < completions.count - 1 {
+                    Divider()
+                        .padding(.horizontal, 16)
+                }
+            }
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color(.systemBackground))
+                .shadow(color: .black.opacity(0.1), radius: 4, x: 0, y: 2)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color(.systemGray4), lineWidth: 0.5)
+        )
     }
+}
+
+private struct TagButton: View {
+    let tag: FoodEvent.EventTag
+    let isSelected: Bool
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            Text(tag.rawValue)
+                .font(.caption)
+                .fontWeight(.medium)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(isSelected ? tag.color.opacity(0.2) : Color(.systemGray6))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16)
+                                .strokeBorder(isSelected ? tag.color : Color.clear, lineWidth: 1)
+                        )
+                )
+                .foregroundColor(isSelected ? tag.color : .secondary)
+        }
+    }
+}
+
+#Preview {
+    AddEventView()
+        .environmentObject(FoodEventsViewModel())
+}
 

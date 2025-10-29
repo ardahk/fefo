@@ -107,8 +107,8 @@ struct MapView: View {
             Map(position: $cameraPosition) {
                 // Replace the existing ForEach with this:
                 ForEach(groupedEvents) { group in
-                    Annotation(group.events[0].title, coordinate: group.location) {
-                        EventMapMarker(events: group.events, isSelected: selectedEvents?.contains(where: { $0.id == group.events[0].id }) ?? false)
+                    Annotation("", coordinate: group.location) {
+                        EventMapMarker(events: group.events, isSelected: selectedEvents?.contains(where: { $0.id == group.events[0].id }) ?? false, pinColors: group.events.map { getPinColor(for: $0) })
                             .onTapGesture {
                                 withAnimation(.spring(response: 0.3)) {
                                     // Reset search state when tapping a pin
@@ -130,7 +130,6 @@ struct MapView: View {
                 .library,
                 .museum,
                 .stadium,
-                .theater
             ])))
             .mapControls { }
             // Add gesture recognizer to dismiss search
@@ -551,10 +550,30 @@ struct MapView: View {
     @State private var searchScrollOffset: CGFloat = 0
 }
 
+// Helper function to determine pin color based on event status
+private func getPinColor(for event: FoodEvent) -> String {
+    let now = Date()
+    
+    // If event is happening now (and up to 15 minutes after it ends)
+    if now >= event.startTime && now <= event.endTime.addingTimeInterval(15 * 60) {
+        return "red_pin"
+    }
+    
+    // If event starts within 1 hour
+    let oneHourFromNow = now.addingTimeInterval(60 * 60)
+    if now < event.startTime && event.startTime <= oneHourFromNow {
+        return "orange_pin"
+    }
+    
+    // Default: event is later today
+    return "green_pin"
+}
+
 // Replace the existing EventMapMarker with this updated version
 struct EventMapMarker: View {
     let events: [FoodEvent]
     let isSelected: Bool
+    let pinColors: [String]
     
     private var isMultiple: Bool {
         events.count > 1
@@ -564,60 +583,57 @@ struct EventMapMarker: View {
         ZStack {
             // Different visualization based on event count
             if events.count >= 3 {
-                // Three circles for 3+ events
-                // Right circle
-                Circle()
-                    .fill(events[0].isActive ? Color.blue : Color.gray)
-                    .frame(width: 32, height: 32)
+                // Three pin images for 3+ events with rotation
+                // Right pin (most rotated) - third event color
+                Image(pinColors.count > 2 ? pinColors[2] : "green_pin")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 48, height: 48)
                     .offset(x: 16)
-                    .shadow(radius: isSelected ? 3 : 1)
+                    .opacity(0.7)
+                    .rotationEffect(.degrees(20))
                 
-                // Middle circle
-                Circle()
-                    .fill(events[0].isActive ? Color.blue : Color.gray)
-                    .frame(width: 32, height: 32)
+                // Middle pin (slight rotation) - second event color
+                Image(pinColors.count > 1 ? pinColors[1] : "green_pin")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 48, height: 48)
                     .offset(x: 8)
-                    .shadow(radius: isSelected ? 3 : 1)
+                    .opacity(0.85)
+                    .rotationEffect(.degrees(10))
                 
-                // Main circle
-                Circle()
-                    .fill(events[0].isActive ? Color.blue : Color.gray)
-                    .frame(width: 32, height: 32)
-                    .shadow(radius: isSelected ? 3 : 1)
+                // Main pin (no rotation) - first event color
+                Image(pinColors[0])
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 48, height: 48)
                 
             } else if events.count == 2 {
-                // Two circles for exactly 2 events
-                // Right circle
-                Circle()
-                    .fill(events[0].isActive ? Color.blue : Color.gray)
-                    .frame(width: 32, height: 32)
+                // Two pins for exactly 2 events with rotation
+                // Right pin (rotated) - second event color
+                Image(pinColors.count > 1 ? pinColors[1] : "green_pin")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 48, height: 48)
                     .offset(x: 12)
-                    .shadow(radius: isSelected ? 3 : 1)
+                    .opacity(0.7)
+                    .rotationEffect(.degrees(12))
                 
-                // Main circle
-                Circle()
-                    .fill(events[0].isActive ? Color.blue : Color.gray)
-                    .frame(width: 32, height: 32)
-                    .shadow(radius: isSelected ? 3 : 1)
+                // Main pin (slight counter-rotation) - first event color
+                Image(pinColors[0])
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 48, height: 48)
+                    .rotationEffect(.degrees(-8))
                 
             } else {
-                // Single circle for 1 event
-                Circle()
-                    .fill(events[0].isActive ? Color.blue : Color.gray)
-                    .frame(width: 32, height: 32)
-                    .shadow(radius: isSelected ? 3 : 1)
+                // Single pin for 1 event (no rotation)
+                Image(pinColors[0])
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 48, height: 48)
             }
             
-            // Content inside the main circle
-            if events.count > 1 {
-                Text("\(events.count)")
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundColor(.white)
-            } else {
-                Image(systemName: "fork.knife")
-                    .foregroundColor(.white)
-                    .font(.system(size: 16))
-            }
         }
         .overlay(alignment: .top) {
             if isSelected {

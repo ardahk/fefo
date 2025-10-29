@@ -41,14 +41,15 @@ struct EventDetailView: View {
                                 .fontWeight(.bold)
                         }
                         
-                        // Collapsible description (render markdown)
+                        // Collapsible description (plain text with proper line breaks)
                         VStack(alignment: .leading, spacing: 6) {
-                            Text(try! AttributedString(markdown: event.description))
+                            Text(event.description)
                                 .font(.body)
                                 .lineLimit(isDescriptionExpanded ? nil : descriptionCollapsedLineLimit)
                                 .animation(.easeInOut(duration: 0.2), value: isDescriptionExpanded)
                             
-                            if event.description.count > descriptionCollapseThreshold {
+                            let lineCount = event.description.components(separatedBy: "\n").count
+                            if lineCount > descriptionCollapsedLineLimit || event.description.count > descriptionCollapseThreshold {
                                 Button(isDescriptionExpanded ? "Show less" : "More…") {
                                     withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
                                         isDescriptionExpanded.toggle()
