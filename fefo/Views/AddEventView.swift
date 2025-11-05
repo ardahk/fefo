@@ -1,4 +1,5 @@
 // Test comment - verifying instant sync between Claude Code and Xcode
+// Second test after teleport - this should appear INSTANTLY in Xcode!
 import SwiftUI
 import Inject
 import MapKit
