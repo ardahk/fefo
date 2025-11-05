@@ -12,6 +12,16 @@ struct ProfileView: View {
     @State private var showingImagePicker = false
     @State private var selectedItem: PhotosPickerItem?
     @State private var scrollOffset: CGFloat = 0
+    @State private var isExpanded = false
+    @State private var stats = FoodEventsViewModel.UserStats(
+        eventsPosted: 0,
+        eventsAttended: 0,
+        commentsMade: 0,
+        leaderboardRank: 0,
+        points: 0,
+        impactScore: 0
+    )
+    @State private var formattedMemberSince = ""
     @Binding var presentationDetent: PresentationDetent
 
     var body: some View {
@@ -29,7 +39,7 @@ struct ProfileView: View {
                         .padding(.bottom, 24)
 
                     // Expanded Content (visible when scrolled/expanded)
-                    if presentationDetent == .large {
+                    if isExpanded {
                         expandedSection
                             .padding(.horizontal, 20)
                     }
@@ -48,8 +58,9 @@ struct ProfileView: View {
             .onPreferenceChange(ScrollOffsetPreferenceKey.self) { value in
                 scrollOffset = value
                 // Auto-expand to large when scrolling up
-                if value < -50 && presentationDetent == .medium {
+                if value < -50 && !isExpanded {
                     withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                        isExpanded = true
                         presentationDetent = .large
                     }
                 }
@@ -65,7 +76,7 @@ struct ProfileView: View {
                 }
 
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    if presentationDetent == .large {
+                    if isExpanded {
                         Button(isEditMode ? "Done" : "Edit") {
                             if isEditMode {
                                 saveProfile()
@@ -82,11 +93,17 @@ struct ProfileView: View {
         }
         .onAppear {
             editedUsername = viewModel.currentUser.username
+            isExpanded = (presentationDetent == .large)
+            stats = viewModel.getUserStats()
+            updateFormattedDate()
+        }
+        .onChange(of: presentationDetent) { oldValue, newValue in
+            isExpanded = (newValue == .large)
         }
         .photosPicker(isPresented: $showingImagePicker, selection: $selectedItem, matching: .images)
-        .onChange(of: selectedItem) { newItem in
+        .onChange(of: selectedItem) { oldValue, newValue in
             Task {
-                if let data = try? await newItem?.loadTransferable(type: Data.self) {
+                if let data = try? await newValue?.loadTransferable(type: Data.self) {
                     viewModel.updateProfileImage(data)
                 }
             }
@@ -98,11 +115,11 @@ struct ProfileView: View {
     private var headerSection: some View {
         VStack(spacing: 16) {
             // Profile Picture
-            Button {
+            Button(action: {
                 if isEditMode {
                     showingImagePicker = true
                 }
-            } {
+            }) {
                 ZStack {
                     if let imageData = viewModel.currentUser.profileImageData,
                        let uiImage = UIImage(data: imageData) {
@@ -300,20 +317,21 @@ struct ProfileView: View {
         }
     }
 
-    // MARK: - Helper Properties
-    private var stats: UserStats {
-        viewModel.getUserStats()
-    }
-
-    private var formattedMemberSince: String {
+    // MARK: - Actions
+    private func updateFormattedDate() {
         let formatter = DateFormatter()
         formatter.dateFormat = "MMM yyyy"
-        return formatter.string(from: viewModel.currentUser.memberSince)
+        formattedMemberSince = formatter.string(from: viewModel.currentUser.memberSince)
     }
-
-    // MARK: - Actions
+    
     private func saveProfile() {
         viewModel.updateUsername(editedUsername)
+        // Refresh stats after username update
+        stats = viewModel.getUserStats()
+    }
+    
+    private func refreshStats() {
+        stats = viewModel.getUserStats()
     }
 }
 
@@ -405,13 +423,6 @@ struct RecentEventRow: View {
     }
 }
 
-// MARK: - ScrollOffsetPreferenceKey
-private struct ScrollOffsetPreferenceKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
-    }
-}
 
 // MARK: - Preview
 #Preview {

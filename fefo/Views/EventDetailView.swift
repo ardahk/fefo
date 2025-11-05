@@ -181,6 +181,13 @@ struct EventDetailView: View {
             }
             // No alerts for comment length; we hard-cap input below
         }
+        .onAppear {
+            // Initialize attendance selection based on current user's existing RSVP
+            let existingAttendance = event.attendees.first { 
+                $0.userId == viewModel.currentUser.id.uuidString 
+            }
+            selectedAttendance = existingAttendance?.status
+        }
         .onChange(of: selectedAttendance) { oldValue, newValue in
             if let status = newValue {
                 viewModel.updateAttendance(eventId: event.id, status: status)
