@@ -1,3 +1,4 @@
+// Test comment - verifying instant sync between Claude Code and Xcode
 import SwiftUI
 import Inject
 import MapKit
