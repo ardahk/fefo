@@ -9,15 +9,15 @@ struct MyEventsView: View {
     var eventsGoing: [FoodEvent] {
         viewModel.foodEvents.filter { event in
             event.attendees.contains { attendee in
-                attendee.userId == "Anonymous" && // Replace with actual user ID
+                attendee.userId == viewModel.currentUser.id.uuidString &&
                 attendee.status == .going
             }
         }
         .sorted { $0.startTime > $1.startTime }
     }
-    
+
     var eventsPosted: [FoodEvent] {
-        viewModel.foodEvents.filter { $0.createdBy == "Anonymous" }
+        viewModel.foodEvents.filter { $0.createdBy == viewModel.currentUser.username }
             .sorted { $0.startTime > $1.startTime }
     }
     

@@ -15,6 +15,7 @@ struct ContentView: View {
     @State private var showingAddEvent = false
     @State private var selectedTab = 0
     @State private var showingProfile = false
+    @State private var profileDetent: PresentationDetent = .medium
     
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -145,10 +146,13 @@ struct ContentView: View {
         .sheet(isPresented: $showingAddEvent) {
             AddEventView()
         }
-        // Add profile sheet here (to be implemented)
         .sheet(isPresented: $showingProfile) {
-            Text("Profile View - Coming Soon")
-                .presentationDetents([.medium])
+            ProfileView(presentationDetent: $profileDetent)
+                .presentationDetents([.medium, .large], selection: $profileDetent)
+                .presentationDragIndicator(.visible)
+                .onDisappear {
+                    profileDetent = .medium
+                }
         }
         .environmentObject(viewModel)
         .enableInjection()

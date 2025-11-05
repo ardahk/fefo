@@ -181,6 +181,11 @@ struct EventDetailView: View {
             }
             // No alerts for comment length; we hard-cap input below
         }
+        .onChange(of: selectedAttendance) { oldValue, newValue in
+            if let status = newValue {
+                viewModel.updateAttendance(eventId: event.id, status: status)
+            }
+        }
         .enableInjection()
     }
     

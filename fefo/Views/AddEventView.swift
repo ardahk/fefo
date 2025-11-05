@@ -474,7 +474,7 @@ struct AddEventView: View {
             buildingName: buildingName.trimmingCharacters(in: .whitespacesAndNewlines),
             startTime: startTime,
             endTime: endTime,
-            createdBy: "Anonymous",
+            createdBy: viewModel.currentUser.username,
             isActive: true,
             comments: [],
             tags: selectedTags,

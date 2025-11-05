@@ -27,5 +27,20 @@ extension FoodEvent {
             case .cultural: return .teal
             }
         }
+
+        var icon: String {
+            switch self {
+            case .freeFood: return "fork.knife"
+            case .snacks: return "cup.and.saucer.fill"
+            case .drinks: return "mug.fill"
+            case .club: return "person.3.fill"
+            case .seminar: return "person.wave.2.fill"
+            case .workshop: return "hammer.fill"
+            case .social: return "party.popper.fill"
+            case .academic: return "book.fill"
+            case .sports: return "figure.run"
+            case .cultural: return "theatermasks.fill"
+            }
+        }
     }
 } 
