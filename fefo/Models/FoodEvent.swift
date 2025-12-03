@@ -3,28 +3,28 @@ import CoreLocation
 import SwiftUI
 
 struct FoodEvent: Identifiable, Codable {
-    let id: UUID
+    let id: String
     var title: String
     var description: String
     var location: CLLocationCoordinate2D
     var buildingName: String
     var startTime: Date
     var endTime: Date
-    var createdBy: String
+    var createdBy: String // This should ideally be userId, but keeping username for now to match legacy
     var isActive: Bool
     var comments: [Comment]
     var tags: [EventTag]
     var attendees: [Attendee]
     
     struct Comment: Identifiable, Codable {
-        let id: UUID
+        let id: String
         var text: String
         var userName: String
         var timestamp: Date
     }
     
     struct Attendee: Identifiable, Codable {
-        let id: UUID
+        let id: String
         let userId: String
         var status: AttendanceStatus
     }

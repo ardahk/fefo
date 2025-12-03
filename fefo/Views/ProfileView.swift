@@ -1,6 +1,7 @@
 import SwiftUI
 import Inject
 import PhotosUI
+// import FirebaseAuth  // Commented out for demo
 
 struct ProfileView: View {
     @ObserveInjection var inject
@@ -134,7 +135,7 @@ struct ProfileView: View {
                             .fill(viewModel.currentUser.avatarColor.gradient)
                             .frame(width: 100, height: 100)
                             .overlay {
-                                Text(viewModel.currentUser.initials)
+                                Text("AH") // Demo initials for Arda Hoke
                                     .font(.system(size: 40, weight: .semibold, design: .rounded))
                                     .foregroundColor(.white)
                             }
@@ -150,7 +151,6 @@ struct ProfileView: View {
                             .foregroundColor(.white)
                     }
                 }
-                .shadow(color: .black.opacity(0.1), radius: 10, x: 0, y: 4)
             }
             .disabled(!isEditMode)
 
@@ -162,7 +162,7 @@ struct ProfileView: View {
                     .padding(.horizontal, 40)
                     .textFieldStyle(.plain)
             } else {
-                Text(viewModel.currentUser.username)
+                Text("Arda") // Demo name
                     .font(.system(size: 28, weight: .bold, design: .rounded))
                     .foregroundColor(ColorTheme.darkGray)
             }
@@ -303,7 +303,7 @@ struct ProfileView: View {
                         Text("User ID")
                             .foregroundColor(ColorTheme.softGray)
                         Spacer()
-                        Text(viewModel.currentUser.id.uuidString.prefix(8).uppercased())
+                        Text(String(viewModel.currentUser.id.prefix(8)).uppercased())
                             .font(.system(.body, design: .monospaced))
                             .foregroundColor(ColorTheme.darkGray)
                     }
@@ -312,6 +312,27 @@ struct ProfileView: View {
                 }
                 .cornerRadius(12)
             }
+            
+            // Sign Out Button
+            Divider()
+                .padding(.vertical, 8)
+            
+            Button(action: {
+                signOut()
+            }) {
+                HStack {
+                    Image(systemName: "rectangle.portrait.and.arrow.right")
+                        .foregroundColor(.red)
+                    Text("Sign Out")
+                        .foregroundColor(.red)
+                        .fontWeight(.medium)
+                    Spacer()
+                }
+                .padding(16)
+                .background(Color(.systemBackground))
+                .cornerRadius(12)
+            }
+            .buttonStyle(.plain)
 
             Spacer(minLength: 40)
         }
@@ -323,7 +344,7 @@ struct ProfileView: View {
         formatter.dateFormat = "MMM yyyy"
         formattedMemberSince = formatter.string(from: viewModel.currentUser.memberSince)
     }
-    
+
     private func saveProfile() {
         viewModel.updateUsername(editedUsername)
         // Refresh stats after username update
@@ -332,6 +353,17 @@ struct ProfileView: View {
     
     private func refreshStats() {
         stats = viewModel.getUserStats()
+    }
+    
+    private func signOut() {
+        // Commented out for demo
+        // do {
+        //     try Auth.auth().signOut()
+        //     dismiss()
+        // } catch {
+        //     print("Error signing out: \(error.localizedDescription)")
+        // }
+        dismiss()
     }
 }
 
@@ -365,7 +397,10 @@ struct StatCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(.systemBackground))
         .cornerRadius(16)
-        .shadow(color: .black.opacity(0.05), radius: 8, x: 0, y: 2)
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(Color(.systemGray6), lineWidth: 1)
+        )
     }
 }
 

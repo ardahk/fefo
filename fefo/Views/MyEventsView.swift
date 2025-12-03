@@ -9,7 +9,7 @@ struct MyEventsView: View {
     var eventsGoing: [FoodEvent] {
         viewModel.foodEvents.filter { event in
             event.attendees.contains { attendee in
-                attendee.userId == viewModel.currentUser.id.uuidString &&
+                attendee.userId == viewModel.currentUser.id &&
                 attendee.status == .going
             }
         }

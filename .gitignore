@@ -1,2 +1,73 @@
 .cursor/rules/main-rule.mdc
 *.xcuserdatad/
+
+# Firebase
+GoogleService-Info.plist
+**/GoogleService-Info.plist
+.firebase/
+firebase-debug.log
+firestore-debug.log
+firestore.rules
+storage.rules
+
+
+public/
+
+
+*.env
+*.env.*
+.env.local
+.env.*.local
+secrets/
+**/secrets/
+*.secret
+*.secrets
+
+
+*.xcconfig
+!*.xcconfig.template
+
+
+*.p12
+*.p8
+*.mobileprovision
+*.cer
+AuthKey_*.p8
+
+# Debug and logs
+*.log
+*.hprof
+crash-reports/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# IDE
+.idea/
+*.swp
+*.swo
+*~
+
+# Xcode
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+DerivedData/
+*.moved-aside
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+
+# Build artifacts
+build/
+*.ipa
+*.dSYM.zip
+*.dSYM

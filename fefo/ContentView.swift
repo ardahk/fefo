@@ -171,9 +171,9 @@ struct AddEventButton: View {
                 .background(
                     Circle()
                         .fill(.white)
-                        .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
                 )
         }
+        .buttonStyle(.plain)
         .padding(.bottom, 64)
         .padding()
         .accessibilityLabel("Add New Event")

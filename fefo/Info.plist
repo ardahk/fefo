@@ -2,7 +2,20 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>fefo</string>
+			</array>
+		</dict>
+	</array>
 	<key>MBXAccessToken</key>
 	<string>pk.eyJ1Ijoiam9uc25vdiIsImEiOiJjbTQ3dzJybnEwYTl6MmlvbmlpMjlnanpsIn0.RtQhBkp5uOyuhwM4Q6FjUQ</string>
+	<key>NSAppTransportSecurity</key>
+	<dict/>
 </dict>
 </plist>

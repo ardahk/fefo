@@ -2,13 +2,13 @@ import SwiftUI
 import Foundation
 
 struct User: Identifiable, Codable {
-    let id: UUID
+    let id: String
     var username: String
     var email: String
     var profileImageData: Data?  // Store image data locally (no backend)
     var memberSince: Date
 
-    init(id: UUID = UUID(), username: String, email: String, profileImageData: Data? = nil, memberSince: Date = Date()) {
+    init(id: String = UUID().uuidString, username: String, email: String, profileImageData: Data? = nil, memberSince: Date = Date()) {
         self.id = id
         self.username = username
         self.email = email

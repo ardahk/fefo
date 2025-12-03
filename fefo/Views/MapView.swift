@@ -239,9 +239,9 @@ struct MapView: View {
                             .background {
                                 RoundedRectangle(cornerRadius: 12)
                                     .fill(Color(.systemBackground))
-                                    .shadow(color: .black.opacity(0.1), radius: 5)
                             }
                     }
+                    .buttonStyle(.plain)
                 }
                 .padding(.horizontal)
                 .padding(.top)
@@ -275,9 +275,9 @@ struct MapView: View {
                                 .background {
                                     RoundedRectangle(cornerRadius: 8)
                                         .fill(.thinMaterial)
-                                        .shadow(color: Color.black.opacity(0.1), radius: 1, x: 0, y: 1)
                                 }
                         }
+                        .buttonStyle(.plain)
                         .padding(.trailing)
                     }
                     .padding(.top, 4)
@@ -685,6 +685,7 @@ struct EventPreviewCard: View {
                         .imageScale(.medium)
                         .frame(width: 44, height: 44)
                 }
+                .buttonStyle(.plain)
             }
             
             HStack(spacing: 4) {
@@ -749,11 +750,10 @@ struct EventPreviewCard: View {
         .background {
             RoundedRectangle(cornerRadius: 12)
                 .fill(Color(.systemBackground))
-                .shadow(color: Color.black.opacity(0.1), radius: 3, x: 0, y: 1)
         }
         .overlay(
             RoundedRectangle(cornerRadius: 12)
-                .strokeBorder(Color.gray.opacity(0.1), lineWidth: 0.5)
+                .strokeBorder(Color.gray.opacity(0.2), lineWidth: 1)
         )
         .contentShape(Rectangle())
     }
@@ -842,11 +842,10 @@ struct SearchResultRow: View {
             .background {
                 RoundedRectangle(cornerRadius: 12)
                     .fill(Color(.systemBackground))
-                    .shadow(color: Color.black.opacity(0.1), radius: 3, x: 0, y: 1)
             }
             .overlay(
                 RoundedRectangle(cornerRadius: 12)
-                    .strokeBorder(Color.gray.opacity(0.1), lineWidth: 0.5)
+                    .strokeBorder(Color.gray.opacity(0.2), lineWidth: 1)
             )
             .contentShape(RoundedRectangle(cornerRadius: 12)) // Ensure tap area matches visual shape
         }
@@ -926,6 +925,7 @@ struct SearchBar: View {
                         .foregroundColor(.gray)
                         .transition(.scale.combined(with: .opacity))
                 }
+                .buttonStyle(.plain)
                 .transition(.scale.combined(with: .opacity))
             }
         }
@@ -933,7 +933,6 @@ struct SearchBar: View {
         .background {
             RoundedRectangle(cornerRadius: 12)
                 .fill(Color(.systemBackground))
-                .shadow(color: .black.opacity(0.1), radius: 5)
         }
         .frame(maxWidth: .infinity)
         .frame(height: 44)

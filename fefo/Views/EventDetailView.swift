@@ -184,7 +184,7 @@ struct EventDetailView: View {
         .onAppear {
             // Initialize attendance selection based on current user's existing RSVP
             let existingAttendance = event.attendees.first { 
-                $0.userId == viewModel.currentUser.id.uuidString 
+                $0.userId == viewModel.currentUser.id
             }
             selectedAttendance = existingAttendance?.status
         }
@@ -335,12 +335,13 @@ struct AttendanceButton: View {
             )
             .foregroundColor(isSelected ? color : .secondary)
         }
+        .buttonStyle(.plain)
     }
 }
 
 #Preview {
     EventDetailView(event: FoodEvent(
-        id: UUID(),
+        id: UUID().uuidString,
         title: "Free Pizza",
         description: "Pizza in the CS building lobby",
         location: CLLocationCoordinate2D(latitude: 37.7749, longitude: -122.4194),
