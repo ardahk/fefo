@@ -55,6 +55,7 @@ crash-reports/
 *.xcworkspace/xcuserdata/
 *.xcodeproj/xcuserdata/
 *.xcodeproj/project.xcworkspace/xcuserdata/
+*.xcodeproj
 DerivedData/
 *.moved-aside
 *.pbxuser
